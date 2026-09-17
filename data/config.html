@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laboratoire Tresor - Setup</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Laboratoire Tresor</h1>
+        <h2>Initial Setup</h2>
+        
+        <form id="setup-form">
+            <div class="form-section">
+                <h3>WiFi Configuration</h3>
+                <div class="form-group">
+                    <label for="wifi_ssid">WiFi SSID:</label>
+                    <input type="text" id="wifi_ssid" name="wifi_ssid" required>
+                </div>
+                <div class="form-group">
+                    <label for="wifi_password">WiFi Password:</label>
+                    <input type="password" id="wifi_password" name="wifi_password">
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3>MQTT Configuration</h3>
+                <div class="form-group">
+                    <label for="mqtt_server">MQTT Server:</label>
+                    <input type="text" id="mqtt_server" name="mqtt_server" required>
+                </div>
+                <div class="form-group">
+                    <label for="mqtt_port">MQTT Port:</label>
+                    <input type="number" id="mqtt_port" name="mqtt_port" value="1883">
+                </div>
+                <div class="form-group">
+                    <label for="mqtt_user">MQTT Username:</label>
+                    <input type="text" id="mqtt_user" name="mqtt_user">
+                </div>
+                <div class="form-group">
+                    <label for="mqtt_password">MQTT Password:</label>
+                    <input type="password" id="mqtt_password" name="mqtt_password">
+                </div>
+                <div class="form-group">
+                    <label for="mqtt_client_id">MQTT Client ID:</label>
+                    <input type="text" id="mqtt_client_id" name="mqtt_client_id" value="M5AtomS3Vibration">
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3>Device Configuration</h3>
+                <div class="form-group">
+                    <label for="hostname">Hostname:</label>
+                    <input type="text" id="hostname" name="hostname" value="tresor.lab">
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary">Save Configuration</button>
+        </form>
+
+        <div id="status-message" class="hidden"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

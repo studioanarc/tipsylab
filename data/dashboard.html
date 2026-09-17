@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laboratoire Tresor - Fermentation Monitor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Laboratoire Tresor</h1>
+            <div class="nav-links">
+                <a href="/" class="active">Dashboard</a>
+                <a href="/config">Settings</a>
+            </div>
+        </header>
+
+        <div class="status-panel">
+            <div class="status-card" id="connection-status">
+                <h3>Connection Status</h3>
+                <div class="status-grid">
+                    <div class="status-label">WiFi:</div>
+                    <div class="status-value" id="wifi-status">Unknown</div>
+                    
+                    <div class="status-label">MQTT:</div>
+                    <div class="status-value" id="mqtt-status">Unknown</div>
+                    
+                    <div class="status-label">IP Address:</div>
+                    <div class="status-value" id="ip-address">Unknown</div>
+                    
+                    <div class="status-label">Hostname:</div>
+                    <div class="status-value" id="hostname">Unknown</div>
+                    
+                    <div class="status-label">WiFi Signal:</div>
+                    <div class="status-value" id="rssi">Unknown</div>
+                </div>
+            </div>
+
+            <div class="status-card" id="sensor-status">
+                <h3>Sensor Status</h3>
+                <div class="status-grid">
+                    <div class="status-label">Bubble Count:</div>
+                    <div class="status-value" id="bubble-count">0</div>
+                    
+                    <div class="status-label">Temperature 1:</div>
+                    <div class="status-value" id="temp1">--</div>
+                    
+                    <div class="status-label">Temperature 2:</div>
+                    <div class="status-value" id="temp2">--</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="chart-card">
+                <h3>Bubble Activity</h3>
+                <canvas id="bubble-chart"></canvas>
+            </div>
+            
+            <div class="chart-card">
+                <h3>Temperature</h3>
+                <canvas id="temp-chart"></canvas>
+            </div>
+        </div>
+
+        <div class="settings-card">
+            <h3>Sensor Settings</h3>
+            <div class="settings-form">
+                <div class="form-group">
+                    <label for="gyro_threshold">Gyro Threshold:</label>
+                    <input type="range" id="gyro_threshold" min="0.1" max="5.0" step="0.1" value="0.5">
+                    <span id="gyro_threshold_value">0.5</span>
+                </div>
+                
+                <div class="form-group">
+                    <label for="min_activity_threshold">Min Activity Threshold:</label>
+                    <input type="range" id="min_activity_threshold" min="0.05" max="1.0" step="0.05" value="0.2">
+                    <span id="min_activity_threshold_value">0.2</span>
+                </div>
+                
+                <div class="form-group">
+                    <label for="debounce_time">Debounce Time (ms):</label>
+                    <input type="range" id="debounce_time" min="200" max="5000" step="100" value="1000">
+                    <span id="debounce_time_value">1000</span>
+                </div>
+                
+                <button id="save-settings" class="btn-primary">Save Settings</button>
+            </div>
+        </div>
+
+        <div id="status-message" class="hidden"></div>
+    </div>
+
+    <script src="chart.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
