@@ -1,254 +1,187 @@
-document.addEventListener('DOMContentLoaded', function() {
-    // Determine which page we're on
-    const currentPath = window.location.pathname;
-    
-    // Initialize based on the current page
-    if (currentPath === '/') {
-        initDashboard();
-    } else if (currentPath === '/config' && document.getElementById('setup-form')) {
-        initSetupForm();
-    } else if (currentPath === '/config') {
-        initConfigPage();
-    }
-    
-    // Set up range slider value display
-    document.querySelectorAll('input[type="range"]').forEach(function(slider) {
-        const valueDisplay = document.getElementById(slider.id + '_value');
-        if (valueDisplay) {
-            // Initialize display with current value
-            valueDisplay.textContent = slider.value;
-            
-            // Update display when slider changes
-            slider.addEventListener('input', function() {
-                valueDisplay.textContent = this.value;
-            });
-        }
+// TIPSYlab web UI: dashboard, settings and first-time setup. No dependencies.
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+
+  const api = {
+    get: (url) => fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+    post: (url) => fetch(url, { method: 'POST' }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }),
+    postJson: (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }),
+    postForm: (url, form) => fetch(url, { method: 'POST', body: new URLSearchParams(new FormData(form)) })
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }),
+  };
+
+  function setText(id, text) { const el = $(id); if (el) el.textContent = text; }
+  function setStatus(id, ok, text) {
+    const el = $(id); if (!el) return;
+    el.textContent = text;
+    el.className = 'status-value ' + (ok ? 'success' : 'error');
+  }
+  function message(text, type) {
+    const el = $('status-message'); if (!el) return;
+    el.textContent = text;
+    el.className = type || 'success';
+    clearTimeout(message.timer);
+    message.timer = setTimeout(() => el.classList.add('hidden'), 8000);
+  }
+  function fmtUptime(s) {
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    return (d ? d + 'd ' : '') + h + 'h ' + m + 'm';
+  }
+
+  // ---- sensor settings (sliders shared by dashboard and settings page) ----
+  const SETTING_KEYS = ['gyro_threshold', 'min_activity_threshold', 'debounce_time'];
+
+  function bindSliders() {
+    document.querySelectorAll('input[type="range"]').forEach((s) => {
+      const out = $(s.id + '_value'); if (!out) return;
+      out.textContent = s.value;
+      s.addEventListener('input', () => { out.textContent = s.value; });
     });
-});
-
-// Dashboard initialization
-function initDashboard() {
-    // Initial data load
-    fetchStatusData();
-    fetchHistoryData();
-    
-    // Set up auto-refresh
-    setInterval(fetchStatusData, 5000); // Refresh every 5 seconds
-    setInterval(fetchHistoryData, 60000); // Refresh charts every minute
-    
-    // Set up sensor settings form
-    const saveSettingsBtn = document.getElementById('save-settings');
-    if (saveSettingsBtn) {
-        saveSettingsBtn.addEventListener('click', function() {
-            updateSensorSettings();
-        });
-    }
-}
-
-// Initial setup form
-function initSetupForm() {
-    const setupForm = document.getElementById('setup-form');
-    if (setupForm) {
-        setupForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(setupForm);
-            const data = {};
-            
-            formData.forEach((value, key) => {
-                data[key] = value;
-            });
-            
-            fetch('/save-config', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.text())
-            .then(text => {
-                showStatusMessage(text, 'success');
-                setTimeout(function() {
-                    // Redirect after successful save
-                    window.location.href = '/';
-                }, 5000);
-            })
-            .catch(error => {
-                showStatusMessage('Error saving configuration: ' + error, 'error');
-            });
-        });
-    }
-}
-
-// Configuration page initialization
-function initConfigPage() {
-    // Load current configuration
-    fetch('/api/config')
-        .then(response => response.json())
-        .then(data => {
-            // Populate form fields
-            document.getElementById('wifi_ssid').value = data.wifi_ssid || '';
-            document.getElementById('mqtt_server').value = data.mqtt_server || '';
-            document.getElementById('mqtt_port').value = data.mqtt_port || 1883;
-            document.getElementById('mqtt_user').value = data.mqtt_user || '';
-            document.getElementById('mqtt_client_id').value = data.mqtt_client_id || 'M5AtomS3Vibration';
-            document.getElementById('hostname').value = data.hostname || 'tresor.lab';
-            
-            // Set sensor settings sliders
-            const gyroThreshold = document.getElementById('gyro_threshold');
-            if (gyroThreshold) {
-                gyroThreshold.value = data.gyro_threshold || 0.5;
-                document.getElementById('gyro_threshold_value').textContent = gyroThreshold.value;
-            }
-            
-            const minThreshold = document.getElementById('min_activity_threshold');
-            if (minThreshold) {
-                minThreshold.value = data.min_activity_threshold || 0.2;
-                document.getElementById('min_activity_threshold_value').textContent = minThreshold.value;
-            }
-            
-            const debounceTime = document.getElementById('debounce_time');
-            if (debounceTime) {
-                debounceTime.value = data.debounce_time || 1000;
-                document.getElementById('debounce_time_value').textContent = debounceTime.value;
-            }
-        })
-        .catch(error => {
-            showStatusMessage('Error loading configuration: ' + error, 'error');
-        });
-    
-    // Set up form submission
-    const configForm = document.getElementById('config-form');
-    if (configForm) {
-        configForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            // Implementation for saving settings would go here
-            // ...
-            
-            showStatusMessage('Settings saved successfully!', 'success');
-        });
-    }
-    
-    // Set up restart button
-    const restartBtn = document.getElementById('restart-btn');
-    if (restartBtn) {
-        restartBtn.addEventListener('click', function() {
-            if (confirm('Are you sure you want to restart the device?')) {
-                // Implementation for restarting would go here
-                // ...
-                
-                showStatusMessage('Device is restarting...', 'success');
-                setTimeout(function() {
-                    window.location.reload();
-                }, 5000);
-            }
-        });
-    }
-}
-
-// Fetch current status data
-function fetchStatusData() {
-    fetch('/api/status')
-        .then(response => response.json())
-        .then(data => {
-            // Update connection status
-            document.getElementById('wifi-status').textContent = data.wifi_connected ? 'Connected' : 'Disconnected';
-            document.getElementById('wifi-status').className = 'status-value ' + (data.wifi_connected ? 'success' : 'error');
-            
-            document.getElementById('mqtt-status').textContent = data.mqtt_connected ? 'Connected' : 'Disconnected';
-            document.getElementById('mqtt-status').className = 'status-value ' + (data.mqtt_connected ? 'success' : 'error');
-            
-            document.getElementById('ip-address').textContent = data.ip_address || 'Unknown';
-            document.getElementById('hostname').textContent = data.hostname || 'Unknown';
-            document.getElementById('rssi').textContent = data.rssi ? data.rssi + ' dBm' : 'Unknown';
-            
-            // Update sensor status
-            document.getElementById('bubble-count').textContent = data.bubble_count || '0';
-            
-            const temp1Element = document.getElementById('temp1');
-            if (data.temp1_connected) {
-                temp1Element.textContent = data.temp1.toFixed(1) + ' °C';
-                temp1Element.className = 'status-value success';
-            } else {
-                temp1Element.textContent = 'Disconnected';
-                temp1Element.className = 'status-value error';
-            }
-            
-            const temp2Element = document.getElementById('temp2');
-            if (data.temp2_connected) {
-                temp2Element.textContent = data.temp2.toFixed(1) + ' °C';
-                temp2Element.className = 'status-value success';
-            } else {
-                temp2Element.textContent = 'Disconnected';
-                temp2Element.className = 'status-value error';
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching status:', error);
-        });
-}
-
-// Fetch historical data for charts
-function fetchHistoryData() {
-    if (!window.bubbleChart || !window.tempChart) {
-        return; // Charts not initialized yet
-    }
-    
-    fetch('/api/history')
-        .then(response => response.json())
-        .then(data => {
-            // Update bubble chart
-            window.bubbleChart.data.datasets[0].data = data.bubbles;
-            window.bubbleChart.update();
-            
-            // Update temperature chart
-            window.tempChart.data.datasets[0].data = data.temp1;
-            window.tempChart.data.datasets[1].data = data.temp2;
-            window.tempChart.update();
-        })
-        .catch(error => {
-            console.error('Error fetching history data:', error);
-        });
-}
-
-// Update sensor settings
-function updateSensorSettings() {
-    const gyroThreshold = document.getElementById('gyro_threshold').value;
-    const minThreshold = document.getElementById('min_activity_threshold').value;
-    const debounceTime = document.getElementById('debounce_time').value;
-    
-    const data = {
-        gyro_threshold: parseFloat(gyroThreshold),
-        min_activity_threshold: parseFloat(minThreshold),
-        debounce_time: parseInt(debounceTime)
+  }
+  function fillSettings(cfg) {
+    SETTING_KEYS.forEach((k) => {
+      const s = $(k); if (!s || cfg[k] === undefined) return;
+      s.value = cfg[k];
+      const out = $(k + '_value'); if (out) out.textContent = s.value;
+    });
+    const lt = $('legacy_topics'); if (lt) lt.checked = !!cfg.legacy_topics;
+  }
+  function readSettings() {
+    const o = {
+      gyro_threshold: parseFloat($('gyro_threshold').value),
+      min_activity_threshold: parseFloat($('min_activity_threshold').value),
+      debounce_time: parseInt($('debounce_time').value, 10),
     };
-    
-    fetch('/api/update-settings', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-    })
-    .then(response => response.text())
-    .then(text => {
-        showStatusMessage('Settings updated successfully!', 'success');
-    })
-    .catch(error => {
-        showStatusMessage('Error updating settings: ' + error, 'error');
-    });
-}
+    const lt = $('legacy_topics'); if (lt) o.legacy_topics = lt.checked ? 1 : 0;
+    return o;
+  }
+  function saveSettings() {
+    return api.postJson('/api/update-settings', readSettings())
+      .then(() => message('Sensor settings saved.', 'success'))
+      .catch((e) => { message('Could not save settings: ' + e.message, 'error'); throw e; });
+  }
 
-// Show status message
-function showStatusMessage(message, type) {
-    const statusElement = document.getElementById('status-message');
-    if (statusElement) {
-        statusElement.textContent = message;
-        statusElement.className = type || 'success';
-        statusElement.classList.remove('hidden');
-        
-        // Hide message after 5 seconds
-        setTimeout(function() {
-            statusElement.classList.add('hidden');
-        }, 5000);
+  // ---- dashboard ----
+  function initDashboard() {
+    const refreshStatus = () => api.get('/api/status').then((s) => {
+      setStatus('wifi-status', s.wifi_connected, s.wifi_connected ? 'Connected' : (s.ap_active ? 'Setup AP active' : 'Disconnected'));
+      setStatus('mqtt-status', s.mqtt_connected, s.mqtt_connected ? 'Connected' : 'Disconnected');
+      setText('ip-address', s.ip_address || '-');
+      setText('hostname', s.hostname + '.local');
+      setText('device-id', s.device_id);
+      setText('rssi', s.wifi_connected ? s.rssi + ' dBm' : '-');
+      setText('fw-version', s.fw);
+      setText('uptime', fmtUptime(s.uptime));
+      setText('bubble-count', s.bubble_count);
+      setText('bubble-rate', s.bubbles_last_interval + ' /min');
+      setText('total-bubbles', s.total_bubbles);
+      setText('next-send', s.seconds_to_send + ' s');
+      setStatus('temp1', s.temp1_connected, s.temp1_connected ? s.temp1.toFixed(1) + ' °C' : 'not connected');
+      setStatus('temp2', s.temp2_connected, s.temp2_connected ? s.temp2.toFixed(1) + ' °C' : 'not connected');
+      setText('noise-floor', s.calibrating ? 'calibrating…' : s.noise_floor.toFixed(3) + ' °/s');
+      setText('last-peak', s.last_peak.toFixed(2) + ' °/s');
+      setText('sample-rate', s.sample_rate + ' Hz');
+      if (s.autocal) {
+        const a = s.autocal;
+        const txt = a.phase === 'wait_still' ? 'waiting for the device to be still…'
+                  : a.phase === 'quiet'  ? 'keep still… ' + a.seconds_left + ' s'
+                  : a.phase === 'active' ? 'make blops! ' + a.seconds_left + ' s (' + a.blops + ' seen)'
+                  : a.phase === 'done'   ? 'done: ' + a.message
+                  : a.phase === 'failed' ? 'failed: ' + a.message
+                  : 'idle';
+        setStatus('autocal-status', a.phase !== 'failed', txt);
+        if (a.phase === 'done' && refreshStatus.lastPhase !== 'done') fillSettings({ gyro_threshold: a.trigger, min_activity_threshold: a.release });
+        refreshStatus.lastPhase = a.phase;
+      }
+    }).catch(() => setStatus('wifi-status', false, 'no response'));
+
+    const refreshHistory = () => api.get('/api/history').then((h) => {
+      TipsyCharts.bars($('bubble-chart'), h.bubbles);
+      TipsyCharts.lines($('temp-chart'), [
+        { values: h.temp1, color: '#4682b4', label: 'T1' },
+        { values: h.temp2, color: '#ff9800', label: 'T2' },
+      ], '°');
+    }).catch(() => {});
+
+    api.get('/api/config').then(fillSettings).catch(() => {});
+    refreshStatus(); refreshHistory();
+    setInterval(refreshStatus, 2000);
+    setInterval(refreshHistory, 60000);
+    window.addEventListener('resize', refreshHistory);
+
+    $('save-settings').addEventListener('click', () => saveSettings().catch(() => {}));
+    $('autocal-btn').addEventListener('click', () => api.post('/api/autocal')
+      .then(() => message('Auto-calibration started: keep the device still for 10 s, then make blops for 20 s.', 'success'))
+      .catch((e) => message('Failed: ' + e.message, 'error')));
+    $('calibrate-btn').addEventListener('click', () => api.post('/api/calibrate')
+      .then(() => message('Baseline is being relearned - keep the device still for a second.', 'success'))
+      .catch((e) => message('Failed: ' + e.message, 'error')));
+  }
+
+  // ---- settings page ----
+  function initSettings() {
+    api.get('/api/config').then((cfg) => {
+      ['wifi_ssid', 'mqtt_server', 'mqtt_port', 'mqtt_user', 'mqtt_client_id', 'hostname'].forEach((k) => { if ($(k)) $(k).value = cfg[k] ?? ''; });
+      fillSettings(cfg);
+      setText('device-id', cfg.device_id);
+      setText('fw-version', cfg.fw);
+      setText('ota-host', cfg.hostname + '.local' + (cfg.ota_protected ? ' (password protected)' : ' (no password!)'));
+      showLogo(!!cfg.logo);
+    }).catch((e) => message('Could not load configuration: ' + e.message, 'error'));
+
+    // display logo
+    function showLogo(has) {
+      const img = $('logo-preview'); if (!img) return;
+      img.style.display = has ? 'block' : 'none';
+      if (has) img.src = '/logo?' + Date.now();
+      setText('logo-status', has ? 'Logo stored on the device' : 'No logo - the status view is shown');
     }
-}
+    $('logo-upload-btn').addEventListener('click', () => {
+      const file = $('logo-file').files[0];
+      if (!file) { message('Choose a PNG or JPEG file first.', 'error'); return; }
+      const fd = new FormData();
+      fd.append('logo', file, file.name);
+      fetch('/api/logo', { method: 'POST', body: fd })
+        .then((r) => r.text().then((t) => { if (!r.ok) throw new Error(t || 'HTTP ' + r.status); }))
+        .then(() => { message('Logo uploaded - it appears on the screen within a second.', 'success'); setTimeout(() => showLogo(true), 1500); })
+        .catch((e) => message('Upload failed: ' + e.message, 'error'));
+    });
+    $('logo-delete-btn').addEventListener('click', () => {
+      if (!confirm('Remove the logo from the device?')) return;
+      api.post('/api/logo-delete')
+        .then(() => { message('Logo removed.', 'success'); showLogo(false); })
+        .catch((e) => message('Failed: ' + e.message, 'error'));
+    });
+
+    $('config-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      saveSettings()
+        .then(() => api.postForm('/save-config', ev.target))
+        .then((t) => message(t + ' Reload this page in ~20 s.', 'success'))
+        .catch((e) => message('Save failed: ' + e.message, 'error'));
+    });
+    $('restart-btn').addEventListener('click', () => {
+      if (!confirm('Restart the device?')) return;
+      api.post('/api/restart').then(() => message('Restarting…', 'success')).catch((e) => message('Failed: ' + e.message, 'error'));
+    });
+  }
+
+  // ---- first-time setup (served on the setup access point) ----
+  function initSetup() {
+    $('setup-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      api.postForm('/save-config', ev.target)
+        .then((t) => message(t + ' You can close this page.', 'success'))
+        .catch((e) => message('Save failed: ' + e.message, 'error'));
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    bindSliders();
+    if ($('bubble-chart')) initDashboard();
+    else if ($('config-form')) initSettings();
+    else if ($('setup-form')) initSetup();
+  });
+})();

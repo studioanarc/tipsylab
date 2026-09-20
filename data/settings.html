@@ -15,76 +15,104 @@
                 <a href="/config" class="active">Settings</a>
             </div>
         </header>
-        
-        <form id="config-form">
+
+        <form id="config-form" method="post" action="/save-config">
             <div class="form-section">
-                <h3>WiFi Configuration</h3>
+                <h3>WiFi</h3>
                 <div class="form-group">
                     <label for="wifi_ssid">WiFi SSID:</label>
                     <input type="text" id="wifi_ssid" name="wifi_ssid" required>
                 </div>
                 <div class="form-group">
-                    <label for="wifi_password">WiFi Password:</label>
-                    <input type="password" id="wifi_password" name="wifi_password" placeholder="Leave blank to keep current password">
+                    <label for="wifi_password">WiFi password:</label>
+                    <input type="password" id="wifi_password" name="wifi_password" placeholder="Leave blank to keep the current password">
                 </div>
             </div>
 
             <div class="form-section">
-                <h3>MQTT Configuration</h3>
+                <h3>MQTT</h3>
                 <div class="form-group">
-                    <label for="mqtt_server">MQTT Server:</label>
+                    <label for="mqtt_server">Broker host:</label>
                     <input type="text" id="mqtt_server" name="mqtt_server" required>
                 </div>
                 <div class="form-group">
-                    <label for="mqtt_port">MQTT Port:</label>
+                    <label for="mqtt_port">Port:</label>
                     <input type="number" id="mqtt_port" name="mqtt_port" value="1883">
                 </div>
                 <div class="form-group">
-                    <label for="mqtt_user">MQTT Username:</label>
+                    <label for="mqtt_user">Username:</label>
                     <input type="text" id="mqtt_user" name="mqtt_user">
                 </div>
                 <div class="form-group">
-                    <label for="mqtt_password">MQTT Password:</label>
-                    <input type="password" id="mqtt_password" name="mqtt_password" placeholder="Leave blank to keep current password">
+                    <label for="mqtt_password">Password:</label>
+                    <input type="password" id="mqtt_password" name="mqtt_password" placeholder="Leave blank to keep the current password">
                 </div>
                 <div class="form-group">
-                    <label for="mqtt_client_id">MQTT Client ID:</label>
-                    <input type="text" id="mqtt_client_id" name="mqtt_client_id" value="M5AtomS3Vibration">
+                    <label for="mqtt_client_id">Client ID:</label>
+                    <input type="text" id="mqtt_client_id" name="mqtt_client_id" placeholder="defaults to the device ID">
+                    <p class="hint">Must be unique per device on the broker - leave it at the device ID unless you have a reason.</p>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="legacy_topics">
+                    <label for="legacy_topics">Also publish the old topics (<code>homeassistant/sensor/fermentation_bubbles</code> etc.)</label>
+                    <p class="hint">Keep this on while existing Home Assistant sensors or automations still use them. New entities are created automatically via MQTT discovery.</p>
                 </div>
             </div>
 
             <div class="form-section">
-                <h3>Device Configuration</h3>
+                <h3>Device</h3>
                 <div class="form-group">
                     <label for="hostname">Hostname:</label>
-                    <input type="text" id="hostname" name="hostname" value="tresor.lab">
+                    <input type="text" id="hostname" name="hostname" placeholder="defaults to the device ID">
+                    <p class="hint">Reachable as <code>&lt;hostname&gt;.local</code>; also the target name for OTA updates.</p>
+                </div>
+                <div class="status-grid">
+                    <div class="status-label">Device ID:</div>
+                    <div class="status-value" id="device-id">-</div>
+                    <div class="status-label">Firmware:</div>
+                    <div class="status-value" id="fw-version">-</div>
+                    <div class="status-label">OTA target:</div>
+                    <div class="status-value" id="ota-host">-</div>
                 </div>
             </div>
 
             <div class="form-section">
-                <h3>Sensor Configuration</h3>
+                <h3>Detection</h3>
                 <div class="form-group">
-                    <label for="gyro_threshold">Gyro Threshold:</label>
-                    <input type="range" id="gyro_threshold" min="0.1" max="5.0" step="0.1" value="0.5">
-                    <span id="gyro_threshold_value">0.5</span>
+                    <label for="gyro_threshold">Trigger threshold (°/s above baseline):</label>
+                    <input type="range" id="gyro_threshold" min="0.1" max="5.0" step="0.1" value="2.0">
+                    <span id="gyro_threshold_value">2.0</span>
                 </div>
-                
                 <div class="form-group">
-                    <label for="min_activity_threshold">Min Activity Threshold:</label>
-                    <input type="range" id="min_activity_threshold" min="0.05" max="1.0" step="0.05" value="0.2">
-                    <span id="min_activity_threshold_value">0.2</span>
+                    <label for="min_activity_threshold">Release threshold (°/s):</label>
+                    <input type="range" id="min_activity_threshold" min="0.05" max="1.0" step="0.05" value="0.5">
+                    <span id="min_activity_threshold_value">0.5</span>
                 </div>
-                
                 <div class="form-group">
-                    <label for="debounce_time">Debounce Time (ms):</label>
-                    <input type="range" id="debounce_time" min="200" max="5000" step="100" value="1000">
-                    <span id="debounce_time_value">1000</span>
+                    <label for="debounce_time">Min. spacing between blops (ms):</label>
+                    <input type="range" id="debounce_time" min="100" max="5000" step="10" value="150">
+                    <span id="debounce_time_value">150</span>
                 </div>
             </div>
 
-            <button type="submit" class="btn-primary">Save Settings</button>
-            <button type="button" id="restart-btn" class="btn-warning">Restart Device</button>
+            <button type="submit" class="btn-primary">Save &amp; restart</button>
+            <button type="button" id="restart-btn" class="btn-warning">Restart device</button>
         </form>
+
+        <div class="form-section">
+            <h3>Display logo</h3>
+            <p class="hint">Shown on the AtomS3 screen instead of the status view (a short button press switches between the two).
+                PNG or JPEG, at most 120 KB. It is scaled to fit 128&times;116 px, so a square or slightly wide image works best.</p>
+            <div class="form-group">
+                <img id="logo-preview" alt="" width="128" height="116" style="display:none;background:#000;border-radius:6px;margin-bottom:0.6em;object-fit:contain;">
+                <div class="status-value" id="logo-status">-</div>
+            </div>
+            <div class="form-group">
+                <input type="file" id="logo-file" accept="image/png,image/jpeg">
+            </div>
+            <button type="button" id="logo-upload-btn" class="btn-primary">Upload logo</button>
+            <button type="button" id="logo-delete-btn" class="btn-secondary">Remove logo</button>
+        </div>
 
         <div id="status-message" class="hidden"></div>
     </div>

@@ -9,54 +9,51 @@
 <body>
     <div class="container">
         <h1>Laboratoire Tresor</h1>
-        <h2>Initial Setup</h2>
-        
-        <form id="setup-form">
+        <h2>First-time setup</h2>
+        <p class="hint">Enter your WiFi and MQTT broker. The device restarts, joins the network and appears in Home Assistant automatically. Everything can be changed later at <code>http://&lt;hostname&gt;.local/config</code>.</p>
+
+        <form id="setup-form" method="post" action="/save-config">
             <div class="form-section">
-                <h3>WiFi Configuration</h3>
+                <h3>WiFi</h3>
                 <div class="form-group">
                     <label for="wifi_ssid">WiFi SSID:</label>
                     <input type="text" id="wifi_ssid" name="wifi_ssid" required>
                 </div>
                 <div class="form-group">
-                    <label for="wifi_password">WiFi Password:</label>
+                    <label for="wifi_password">WiFi password:</label>
                     <input type="password" id="wifi_password" name="wifi_password">
                 </div>
             </div>
 
             <div class="form-section">
-                <h3>MQTT Configuration</h3>
+                <h3>MQTT</h3>
                 <div class="form-group">
-                    <label for="mqtt_server">MQTT Server:</label>
+                    <label for="mqtt_server">Broker host:</label>
                     <input type="text" id="mqtt_server" name="mqtt_server" required>
                 </div>
                 <div class="form-group">
-                    <label for="mqtt_port">MQTT Port:</label>
+                    <label for="mqtt_port">Port:</label>
                     <input type="number" id="mqtt_port" name="mqtt_port" value="1883">
                 </div>
                 <div class="form-group">
-                    <label for="mqtt_user">MQTT Username:</label>
+                    <label for="mqtt_user">Username:</label>
                     <input type="text" id="mqtt_user" name="mqtt_user">
                 </div>
                 <div class="form-group">
-                    <label for="mqtt_password">MQTT Password:</label>
+                    <label for="mqtt_password">Password:</label>
                     <input type="password" id="mqtt_password" name="mqtt_password">
-                </div>
-                <div class="form-group">
-                    <label for="mqtt_client_id">MQTT Client ID:</label>
-                    <input type="text" id="mqtt_client_id" name="mqtt_client_id" value="M5AtomS3Vibration">
                 </div>
             </div>
 
             <div class="form-section">
-                <h3>Device Configuration</h3>
+                <h3>Device</h3>
                 <div class="form-group">
-                    <label for="hostname">Hostname:</label>
-                    <input type="text" id="hostname" name="hostname" value="tresor.lab">
+                    <label for="hostname">Hostname (optional):</label>
+                    <input type="text" id="hostname" name="hostname" placeholder="defaults to the device ID, e.g. tipsy-a1b2c3">
                 </div>
             </div>
 
-            <button type="submit" class="btn-primary">Save Configuration</button>
+            <button type="submit" class="btn-primary">Save &amp; connect</button>
         </form>
 
         <div id="status-message" class="hidden"></div>

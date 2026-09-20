@@ -1,780 +1,1931 @@
+/**
+ * TIPSYlab - M5 AtomS3 fermentation bubble counter
+ * -------------------------------------------------
+ * Counts airlock "blops" with the built-in gyroscope, reads up to two DS18B20
+ * probes and publishes everything over MQTT. Home Assistant discovers the device
+ * automatically (MQTT discovery); the bubble payload is also understood by the
+ * tipsyhomelab add-on (topic sensors/bubble/<device-id>).
+ *
+ * Firmware 2.0.0 - see README.md for the MQTT reference and the tuning guide.
+ *
+ * Runtime model: loop() never blocks. The gyro is sampled as fast as the IMU
+ * delivers data; networking, temperature conversion, display and persistence
+ * are all cooperative state machines driven from loop(). Web handlers run on
+ * the async TCP task and therefore only set flags / copy values - they never
+ * touch OneWire, MQTT or NVS themselves.
+ */
+#include <FS.h>          // before M5Unified: enables M5GFX's drawPngFile(fs::FS&, ...) overloads
+#include <SPIFFS.h>
 #include <M5Unified.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
+#include <ArduinoOTA.h>
+#include <Update.h>
+#include <DNSServer.h>
+#include <Preferences.h>
 #include <PubSubClient.h>
 #include <ESPAsyncWebServer.h>
-#include <AsyncTCP.h>
-#include <ESPmDNS.h>
-#include <SPIFFS.h>
 #include <ArduinoJson.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <esp_system.h>
+#include <time.h>
+#include <math.h>
 
-// Web server port
-AsyncWebServer server(80);
+#define FW_VERSION "2.0.6"
 
-// Structure to hold configuration
+// ===== Compile-time defaults (set them in secrets.ini, see secrets.ini.example) =====
+#ifndef TIPSY_WIFI_SSID
+#define TIPSY_WIFI_SSID ""
+#endif
+#ifndef TIPSY_WIFI_PASS
+#define TIPSY_WIFI_PASS ""
+#endif
+#ifndef TIPSY_MQTT_HOST
+#define TIPSY_MQTT_HOST ""
+#endif
+#ifndef TIPSY_MQTT_PORT
+#define TIPSY_MQTT_PORT 1883
+#endif
+#ifndef TIPSY_MQTT_USER
+#define TIPSY_MQTT_USER ""
+#endif
+#ifndef TIPSY_MQTT_PASS
+#define TIPSY_MQTT_PASS ""
+#endif
+#ifndef TIPSY_OTA_PASS
+#define TIPSY_OTA_PASS ""
+#endif
+#ifndef TIPSY_AP_PASS
+#define TIPSY_AP_PASS "treasurelab"
+#endif
+
+// ===== Hardware =====
+#define ONE_WIRE_BUS 2  // DS18B20 data pin (Grove port)
+
+// ===== Fixed timing =====
+const uint32_t SEND_INTERVAL_MS   = 60000;  // MQTT publish interval
+const uint32_t TEMP_INTERVAL_MS   = 10000;  // DS18B20 conversion cadence
+const uint32_t TEMP_CONVERSION_MS = 800;    // 12-bit conversion needs 750 ms
+const uint32_t TEMP_RESCAN_MS     = 60000;  // look for (un)plugged probes
+const uint32_t WIFI_RETRY_MS      = 30000;
+const uint32_t WIFI_BOOT_WAIT_MS  = 15000;
+const int      MAX_HISTORY        = 60;     // one hour of 1-minute slots
+
+// ===== Detector constants =====
+// Baseline (gyro bias) and noise floor are learned only in *still* windows: the last STILL_WINDOW
+// raw samples (~500 ms) span less than STILL_RANGE on every axis. Rest passes (range ~1 deg/s from
+// noise), rocking, hand motion and knocks do not, so nothing can drag the baseline away.
+const uint8_t  STILL_WINDOW          = 96;
+const float    STILL_RANGE           = 1.5f;
+const float    BIAS_ALPHA_STILL      = 0.01f;    // tau ~0.5 s while still
+const uint32_t BOOT_STILL_TIMEOUT_MS = 10000;    // no still window after boot: use the window mean anyway
+const uint32_t NOT_STILL_FALLBACK_MS = 60000;    // permanent vibration: track the window mean slowly instead
+const float    BIAS_ALPHA_SLOW       = 0.0001f;  // tau ~50 s (a zero-mean vibration averages out)
+const float    NOISE_ALPHA       = 0.01f;  // noise-floor smoothing while idle
+const uint32_t RELEASE_HOLD_MS   = 20;     // stay below the release level this long to end an event
+const uint32_t MAX_EVENT_MS      = 1500;   // continuous motion: close the event so the next one can count
+// Vibration floor: the median of the 50 ms bin maxima over the last 2 s (steady hum, rocking) and the
+// minimum of the last VIB_RECENT bins (a hum that just started); the trigger never drops below
+// VIB_FACTOR x that level. Isolated blops occupy one or two bins and do not raise it.
+const uint8_t  VIB_BINS   = 40;
+const uint32_t VIB_BIN_MS = 50;
+const uint8_t  VIB_RECENT = 6;
+const float    VIB_FACTOR = 1.3f;
+// Impulse detection: a blop is a sharp rise, not a level. The rise is measured against the minimum
+// of the last RISE_SAMPLES (~20 ms) and must exceed RISE_FRACTION of the trigger and ENV_FRACTION of
+// the envelope (maximum over the ENV_SAMPLES before that, ~100 ms), so a new blop stands out of the
+// ring-down of the previous one while the ring-down itself never counts twice.
+const uint8_t  RISE_SAMPLES      = 4;
+const uint8_t  ENV_SAMPLES       = 24;
+const float    RISE_FRACTION     = 0.6f;
+const float    ENV_FRACTION      = 0.5f;
+// Handling guard: while the envelope stays above HANDLING_FACTOR x trigger for HANDLING_ON_MS the
+// device is being moved/shaken, not bubbling; counting pauses until it has been calm for HANDLING_OFF_MS.
+const float    HANDLING_FACTOR   = 20.0f;
+const uint32_t HANDLING_ON_MS    = 500;
+const uint32_t HANDLING_OFF_MS   = 1000;
+const uint32_t ACAL_STILL_WAIT_MS   = 5000;   // auto-cal waits this long for a still window before it gives up
+const uint32_t ACAL_STILL_NEEDED_MS = 1000;   // ... and needs stillness this long before the quiet phase starts
+
+// Auto-calibration: a quiet phase measures the noise peaks, an active phase (user makes blops)
+// measures the blop peaks; trigger/release are placed between the two.
+const uint32_t ACAL_QUIET_MS  = 10000;
+const uint32_t ACAL_ACTIVE_MS = 20000;
+const uint8_t  ACAL_MAX_PEAKS = 48;
+const uint8_t  ACAL_MIN_PEAKS = 3;
+// Guard against thresholds inside the sensor noise: the effective trigger/release never drop below
+// these multiples of the measured noise floor (MPU6886 at rest: floor ~0.2 deg/s, peaks 0.5-0.9).
+const float    NOISE_TRIGGER_FACTOR = 6.0f;
+const float    NOISE_RELEASE_FACTOR = 3.0f;
+const int      CONFIG_VERSION       = 4;    // bump when stored detector defaults must be re-applied
+
+// Setting limits (shared by web UI, MQTT and HA discovery)
+const float TRIGGER_MIN = 0.1f,  TRIGGER_MAX = 5.0f;
+const float RELEASE_MIN = 0.05f, RELEASE_MAX = 1.0f;
+const int   REFRACT_MIN = 100,   REFRACT_MAX = 5000;   // spacing below ~100 ms lets one knock count twice
+
+// ===== Configuration (persisted in NVS, survives firmware *and* SPIFFS updates) =====
 struct Config {
-  char wifi_ssid[32] = "";
-  char wifi_password[64] = "";
-  char mqtt_server[64] = "";
-  int mqtt_port = 1883;
-  char mqtt_user[32] = "";
-  char mqtt_password[64] = "";
-  char mqtt_client_id[32] = "M5AtomS3Vibration";
-  char hostname[32] = "tresor.lab";
-  float gyro_threshold = 0.5;
-  float min_activity_threshold = 0.2;
-  int debounce_time = 1000;
+  char  wifi_ssid[33]      = TIPSY_WIFI_SSID;
+  char  wifi_password[65]  = TIPSY_WIFI_PASS;
+  char  mqtt_server[65]    = TIPSY_MQTT_HOST;
+  int   mqtt_port          = TIPSY_MQTT_PORT;
+  char  mqtt_user[33]      = TIPSY_MQTT_USER;
+  char  mqtt_password[65]  = TIPSY_MQTT_PASS;
+  char  mqtt_client_id[33] = "";     // empty = device id
+  char  hostname[33]       = "";     // empty = device id
+  // 2.0.0 shipped 0.5/0.2 here, which sits inside the gyro noise and counted continuously.
+  float gyro_threshold         = 2.0f;  // trigger level, deg/s above the resting baseline
+  float min_activity_threshold = 0.5f;  // release level, deg/s (hysteresis low side)
+  int   debounce_time          = 150;   // minimum spacing between two counted blops, ms
+  bool  legacy_topics          = true;  // also publish the 1.x homeassistant/sensor/... topics
 };
-
 Config config;
 
-// MQTT client
+// ===== Globals =====
+char deviceId[16];                 // "tipsy-a1b2c3" from the WiFi MAC
+Preferences prefs;
 WiFiClient espClient;
-PubSubClient client(espClient);
-
-// MQTT topics
-const char* topic_bubbles = "homeassistant/sensor/fermentation_bubbles";
-const char* topic_temp1 = "homeassistant/sensor/temperature_1";
-const char* topic_temp2 = "homeassistant/sensor/temperature_2";
-const char* topic_sensitivity = "homeassistant/sensor/fermentation_sensitivity";
-const char* topic_min_threshold = "homeassistant/sensor/fermentation_min_threshold";
-const char* topic_debounce_time = "homeassistant/sensor/fermentation_debounce_time";
-
-// ===== DS18B20 TEMPERATURE SENSORS =====
-#define ONE_WIRE_BUS 2  // Pin for OneWire data bus
+PubSubClient mqtt(espClient);
+AsyncWebServer server(80);
+DNSServer dnsServer;
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
+M5Canvas canvas(&M5.Display);
 
-// ===== VIBRATION DETECTION CONFIGURATION =====
-int bubbleCount = 0;
-unsigned long lastSendTime = 0;
-const int sendInterval = 60000;       // Send data every minute (60000ms)
-unsigned long lastDetectionTime = 0;  // For debouncing
+// MQTT topics (built from deviceId at boot)
+char topicState[64];      // sensors/bubble/<id>            JSON, every interval
+char topicTemp1[64];      // sensors/temperature/<id>-1     {"temperature": x}
+char topicTemp2[64];      // sensors/temperature/<id>-2
+char topicSettings[64];   // tipsy/<id>/settings            retained JSON
+char topicAvail[64];      // tipsy/<id>/availability        online/offline (LWT)
+char topicSet[64];        // tipsy/<id>/set                 JSON command
+char topicSetPrefix[64];  // tipsy/<id>/set/<key>           single-value command
+const char* LEGACY_TOPIC_BUBBLES     = "homeassistant/sensor/fermentation_bubbles";
+const char* LEGACY_TOPIC_TEMP1       = "homeassistant/sensor/temperature_1";
+const char* LEGACY_TOPIC_TEMP2       = "homeassistant/sensor/temperature_2";
+const char* LEGACY_TOPIC_SENSITIVITY = "homeassistant/sensor/fermentation_sensitivity";
+const char* LEGACY_TOPIC_MIN         = "homeassistant/sensor/fermentation_min_threshold";
+const char* LEGACY_TOPIC_DEBOUNCE    = "homeassistant/sensor/fermentation_debounce_time";
 
-// Bubble history data storage
-const int MAX_HISTORY = 60; // Store 60 data points
-int bubbleHistory[MAX_HISTORY];
-float tempHistory1[MAX_HISTORY];
-float tempHistory2[MAX_HISTORY];
-int historyIndex = 0;
+// Runtime state
+bool     configured      = false;  // WiFi credentials present
+bool     apActive        = false;
+bool     servicesStarted = false;  // mDNS / OTA / NTP started once we have an IP
+bool     otaInProgress   = false;
+bool     mqttUp          = false;
+uint32_t lastWifiRetry = 0, lastMqttAttempt = 0, mqttBackoff = 5000;
+uint32_t lastSendTime = 0;
+uint32_t lastTempRequest = 0, lastTempScan = 0;
+bool     tempPending = false;
+uint32_t lastScreenDraw = 0, flashUntil = 0;
+bool     flashPending = false;
+uint32_t btnPressStart = 0;
 
-// Variables for improved detection
-const int SAMPLES = 10;
-float gyroReadings[3][SAMPLES];
-int readingIndex = 0;
+// Optional logo on the AtomS3 screen: /logo.png or /logo.jpg in SPIFFS (same names as 1.x),
+// decoded once into a sprite. Short button press toggles logo <-> status view.
+const int      LOGO_BAR_H         = 12;          // status bar below the logo
+const int      LOGO_MAX_BYTES     = 120 * 1024;
+const uint32_t DETAILS_TIMEOUT_MS = 20000;       // status view returns to the logo after this
+M5Canvas logo(&M5.Display);
+bool     logoLoaded = false, logoReload = false, showDetails = false;
+uint32_t detailsUntil = 0;
+char     logoUploadError[48] = "";
 
-// Flag to indicate if we're in AP mode (for initial setup)
-bool apMode = false;
+// Work handed from web handlers / callbacks to loop()
+bool     pendingSave = false, pendingSettingsPublish = false;
+uint32_t pendingRestartAt = 0;
+Config   pendingNet;
+bool     pendingNetApply = false;
 
-void setup() {
-  // Initialize M5Stack
-  M5.begin();
-  Serial.begin(115200);
-  
-  // Initialize IMU
-  if (M5.imu.begin()) {
-    Serial.println("IMU initialized successfully");
-  } else {
-    Serial.println("Failed to initialize IMU!");
+// Measurements
+int      bubbleCount = 0, lastIntervalBubbles = 0;
+uint32_t totalBubbles = 0;
+uint16_t rollBins[60];             // blops per second for the last 60 s -> live bubbles/min
+uint8_t  rollIdx = 0;
+uint32_t rollLastTick = 0;
+int      rollingCount = 0;         // sum of rollBins
+float    tempC[2] = {NAN, NAN};
+uint8_t  tempSensorCount = 0;
+int      bubbleHistory[MAX_HISTORY];
+float    tempHistory1[MAX_HISTORY], tempHistory2[MAX_HISTORY];
+int      historyIndex = 0;
+
+struct AutoCal {
+  enum Phase : uint8_t { IDLE, QUIET, ACTIVE, DONE, FAILED, WAIT_STILL } phase = IDLE;
+  uint32_t phaseStart = 0, showUntil = 0, stillSince = 0;
+  float    quietMax = 0, quietSum = 0;         // quietMax = 3rd largest 50 ms bin maximum (ignores 2 stray knocks)
+  float    quietTop[3] = {0, 0, 0};
+  uint32_t quietN = 0;
+  float    provTrigger = 0, provRelease = 0;   // provisional levels used while collecting blops
+  float    peaks[ACAL_MAX_PEAKS];
+  uint8_t  nPeaks = 0;
+  float    trigger = 0, release = 0;           // result
+  char     message[72] = "";
+} acal;
+bool acalStartPending = false;
+
+// Raw-signal trace for diagnostics (/api/trace): the last TRACE_LEN samples of the bias-corrected
+// magnitude with detector flags, ~4 s at 200 Hz.
+const uint16_t TRACE_LEN = 800;
+float    traceMag[TRACE_LEN];
+uint32_t traceMs[TRACE_LEN];
+uint8_t  traceFlags[TRACE_LEN];     // bit0 in event, bit1 event started on this sample
+uint16_t traceIdx = 0;
+
+// Loop timing diagnostics: per-second maximum of each loop stage (ms), to find what stalls sampling
+struct LoopStats {
+  enum { IMU, NET, MQTT, TEMP, BTN, SCREEN, OTHER, N };
+  uint32_t maxUs[N] = {0}, curUs[N] = {0}, maxIterUs = 0, curIterUs = 0, windowStart = 0;
+  uint32_t iterations = 0, curIterations = 0, imuNone = 0, curImuNone = 0, sumIterUs = 0, curSumIterUs = 0;
+} lstat;
+static inline void lstatMark(int stage, uint32_t& t) { uint32_t n = micros(); if (n - t > lstat.curUs[stage]) lstat.curUs[stage] = n - t; t = n; }
+
+struct Detector {
+  float    bias[3] = {0, 0, 0};
+  bool     biasReady = false;        // baseline learned from a still window (or the boot timeout)
+  uint32_t readyWaitStart = 0, lastStillMs = 0;
+  bool     still = false;
+  float    win[STILL_WINDOW][3];     // raw samples of the still window
+  float    winSum[3] = {0, 0, 0};
+  uint8_t  winIdx = 0, winN = 0;
+  float    noise = 0;                // noise floor: deviation from the window mean while still
+  float    vibBins[VIB_BINS];        // 50 ms bin maxima of the magnitude
+  uint8_t  vibIdx = 0, vibN = 0;
+  float    vibCur = 0, vib = 0;
+  uint32_t vibBinStart = 0;
+  float    trigger = 0, release = 0; // effective levels (configured value, noise guard, vibration floor)
+  bool     inEvent = false;
+  uint32_t eventStartMs = 0, belowSinceMs = 0, lastEventEndMs = 0;
+  float    eventPeak = 0, lastPeak = 0, lastRise = 0;
+  uint32_t lastCountMs = 0;
+  float    hist[ENV_SAMPLES];       // recent magnitudes for rise / envelope
+  uint8_t  histIdx = 0, histN = 0;
+  bool     handling = false;
+  uint32_t handlingSinceMs = 0, calmSinceMs = 0, handlingSuppressed = 0;
+  uint32_t sampleCount = 0, sampleRate = 0, rateWindowStart = 0;
+} det;
+
+// ===== Prototypes =====
+void makeDeviceId();
+void buildTopics();
+void sanitizeHostname(char* s);
+void loadConfig();
+void saveConfig();
+void factoryReset();
+bool isoTimestamp(char* buf, size_t n);
+void processGyroSample(float gx, float gy, float gz, uint32_t now);
+void endEvent(uint32_t now);
+void detRelearn(uint32_t now);
+void startAutoCal(uint32_t now);
+void autoCalTask(uint32_t now);
+void drawAutoCalScreen(uint32_t now);
+bool applySetting(const char* key, float value);
+bool applySettingText(const char* key, const char* value);
+void applySettingJson(const char* key, JsonVariantConst v);
+void connectWifiBlocking();
+void startAccessPoint();
+void startNetworkServices();
+void networkTask(uint32_t now);
+void mqttTask(uint32_t now);
+void mqttCallback(char* topic, byte* payload, unsigned int length);
+void publishDiscovery();
+void publishSettings();
+void publishState();
+void temperatureTask(uint32_t now);
+void pushHistory();
+void buttonTask(uint32_t now);
+void screenTask(uint32_t now);
+void drawStatusScreen(uint32_t now);
+void drawMainScreen();
+void drawLogoScreen();
+void drawSetupScreen();
+const char* logoPath();
+bool loadLogo();
+void displayStatus(const char* message, uint16_t color);
+void setupWebServer();
+
+// M5.begin() only probes the internal IMU on the pins of the board it detected. Units in the
+// field differ (AtomS3: MPU6886 on 38/39, AtomS3R: BMI270 on 45/0, or an external IMU unit
+// on the Grove port), so probe the plausible buses in turn and report what answers.
+bool groveUsedByImu = false;
+
+static bool initImu() {
+  if (M5.Imu.isEnabled()) {
+    Serial.printf("IMU ready (type %d, internal bus)\n", (int)M5.Imu.getType());
+    return true;
   }
-  
-  // Set display brightness
-  if (M5.Display.getBoard() != m5::board_t::board_unknown) {
-    M5.Display.setBrightness(100);
-  }
-  
-  // Clear the display
-  M5.Display.clear();
-  displayStatus("Booting...", GREEN);
-  
-  // Initialize SPIFFS
-  if (!SPIFFS.begin(true)) {
-    Serial.println("An error occurred while mounting SPIFFS");
-    displayStatus("SPIFFS Error", RED);
-    delay(3000);
-  }
-  
-  // Initialize sensors
-  sensors.begin();
-  
-  // Load saved configuration
-  if (!loadConfiguration()) {
-    // If no configuration found, start in AP mode
-    startAPMode();
-  } else {
-    // Try to connect to saved WiFi
-    connectToWifi();
-    
-    // If connection fails, start in AP mode
-    if (WiFi.status() != WL_CONNECTED) {
-      startAPMode();
-    } else {
-      // Set up normal operation
-      setupMDNS();
-      setupMQTT();
-      setupWebServer();
-      
-      // Initialize bubble history arrays
-      for (int i = 0; i < MAX_HISTORY; i++) {
-        bubbleHistory[i] = 0;
-        tempHistory1[i] = 0;
-        tempHistory2[i] = 0;
-      }
-      
-      displayStatus("Ready!", GREEN);
-      delay(1000);
-      displayConnectionStatus();
+  struct Bus { int sda, scl; m5::board_t hint; const char* name; };
+  const Bus buses[] = {
+    { 38, 39, M5.getBoard(),                "internal SDA38/SCL39 (AtomS3)" },
+    { 45,  0, m5::board_t::board_M5AtomS3R, "internal SDA45/SCL0 (AtomS3R)" },
+    {  2,  1, M5.getBoard(),                "Grove SDA2/SCL1 (external IMU unit)" },
+  };
+  for (const Bus& b : buses) {
+    if (b.sda == ONE_WIRE_BUS && tempSensorCount > 0) continue;   // Grove is taken by the DS18B20
+    M5.In_I2C.release();
+    if (!M5.In_I2C.begin(I2C_NUM_1, b.sda, b.scl)) continue;
+    for (int attempt = 0; attempt < 3 && !M5.Imu.isEnabled(); attempt++) {
+      if (attempt) delay(50);
+      M5.Imu.begin(&M5.In_I2C, b.hint);
     }
+    if (M5.Imu.isEnabled()) {
+      Serial.printf("IMU ready: type %d on %s\n", (int)M5.Imu.getType(), b.name);
+      groveUsedByImu = (b.sda == ONE_WIRE_BUS);
+      return true;
+    }
+    bool found[128] = {false};
+    M5.In_I2C.scanID(found);
+    Serial.printf("no IMU on %s; I2C scan:", b.name);
+    int n = 0;
+    for (int a = 8; a < 120; a++) if (found[a]) { Serial.printf(" 0x%02x", a); n++; }
+    Serial.println(n ? "" : " nothing");
   }
+  M5.In_I2C.release();
+  return false;
+}
+
+// =============================================================================
+// setup / loop
+// =============================================================================
+void setup() {
+  auto cfg = M5.config();
+  cfg.internal_imu = true;
+  cfg.serial_baudrate = 115200;
+  M5.begin(cfg);
+#if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
+  Serial.setTxTimeoutMs(10);   // never let a log line stall the gyro loop when nobody reads the USB port
+#endif
+  M5.Display.setBrightness(100);
+  canvas.createSprite(M5.Display.width(), M5.Display.height());
+
+  makeDeviceId();
+  Serial.printf("\nTIPSYlab %s  device %s\n", FW_VERSION, deviceId);
+  displayStatus("TIPSYlab " FW_VERSION, GREEN);
+
+  if (!SPIFFS.begin(true)) {
+    Serial.println("SPIFFS mount failed - web UI unavailable until 'pio run -t uploadfs'");
+  }
+  loadLogo();
+
+  loadConfig();
+  buildTopics();
+
+  for (int i = 0; i < MAX_HISTORY; i++) {
+    bubbleHistory[i] = 0;
+    tempHistory1[i] = NAN;
+    tempHistory2[i] = NAN;
+  }
+
+  // DS18B20: non-blocking conversions, values are read TEMP_CONVERSION_MS later in loop()
+  sensors.begin();
+  sensors.setWaitForConversion(false);
+  sensors.setResolution(12);
+  tempSensorCount = sensors.getDeviceCount();
+  Serial.printf("DS18B20 probes found: %u\n", tempSensorCount);
+
+  if (!initImu()) {
+    Serial.println("IMU not found - bubble detection disabled!");
+    displayStatus("IMU missing!", RED);
+    delay(2000);
+  }
+
+  mqtt.setServer(config.mqtt_server, config.mqtt_port);
+  mqtt.setCallback(mqttCallback);
+  mqtt.setBufferSize(1024);   // HA discovery payloads exceed the 256-byte default
+  mqtt.setKeepAlive(30);
+  mqtt.setSocketTimeout(2);     // CONNACK wait; with the 2 s TCP connect timeout a dead broker costs <= 4 s per attempt
+  espClient.setTimeout(2);      // seconds: TCP connect / read timeout (default 3 s)
+
+  configured = strlen(config.wifi_ssid) > 0;
+  if (configured) {
+    connectWifiBlocking();
+    if (WiFi.status() != WL_CONNECTED) {
+      startAccessPoint();   // AP+STA: setup portal reachable while STA keeps retrying
+    }
+  } else {
+    startAccessPoint();
+  }
+
+  setupWebServer();
+  server.begin();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    startNetworkServices();
+  }
+
+  uint32_t now = millis();
+  lastSendTime = now;
+  lastTempRequest = now - TEMP_INTERVAL_MS;   // first conversion right away
+  lastTempScan = now;
+  det.rateWindowStart = now;
+  lastScreenDraw = 0;
 }
 
 void loop() {
-  // Update button state
+  uint32_t tIter = micros(), tm = tIter;
   M5.update();
-  
-  if (!apMode) {
-    // Only run main monitoring code when not in AP mode
-    
-    // Check WiFi and MQTT connections
-    if (WiFi.status() != WL_CONNECTED) {
-      connectToWifi();
+  uint32_t now = millis();
+
+  if (otaInProgress) {          // update in progress: only service OTA and the pending restart
+    ArduinoOTA.handle();
+    if (pendingRestartAt && (int32_t)(now - pendingRestartAt) >= 0) {
+      Serial.println("Restarting after update");
+      delay(100);
+      ESP.restart();
     }
-    
-    if (!client.connected() && WiFi.status() == WL_CONNECTED) {
-      reconnectMQTT();
-    }
-    
-    client.loop();
-    
-    // Get gyroscope data
-    float gyroX = 0, gyroY = 0, gyroZ = 0;
-    
-    if (M5.imu.getGyroData(&gyroX, &gyroY, &gyroZ) == 0) {
-      // Store current reading in the circular buffer
-      gyroReadings[0][readingIndex] = gyroX;
-      gyroReadings[1][readingIndex] = gyroY;
-      gyroReadings[2][readingIndex] = gyroZ;
-      readingIndex = (readingIndex + 1) % SAMPLES;
-      
-      // Calculate running averages to smooth out noise
-      float avgX = 0, avgY = 0, avgZ = 0;
-      for (int i = 0; i < SAMPLES; i++) {
-        avgX += gyroReadings[0][i] / SAMPLES;
-        avgY += gyroReadings[1][i] / SAMPLES;
-        avgZ += gyroReadings[2][i] / SAMPLES;
+    return;
+  }
+  if (servicesStarted) ArduinoOTA.handle();
+  if (apActive) dnsServer.processNextRequest();
+  lstatMark(LoopStats::OTHER, tm);
+
+  // --- gyro sampling: as fast as the IMU delivers ---
+  if (M5.Imu.update() & m5::IMU_Class::sensor_mask_gyro) {
+    const auto& d = M5.Imu.getImuData();
+    processGyroSample(d.gyro.x, d.gyro.y, d.gyro.z, now);
+  } else {
+    lstat.curImuNone++;
+  }
+  lstatMark(LoopStats::IMU, tm);
+  if (now - det.rateWindowStart >= 1000) {
+    det.sampleRate = det.sampleCount;
+    det.sampleCount = 0;
+    det.rateWindowStart = now;
+  }
+  if (now - rollLastTick >= 1000) {          // advance the 60 s window one second
+    rollLastTick = now;
+    rollIdx = (rollIdx + 1) % 60;
+    rollingCount -= rollBins[rollIdx];
+    rollBins[rollIdx] = 0;
+  }
+
+  networkTask(now);
+  lstatMark(LoopStats::NET, tm);
+  mqttTask(now);
+  lstatMark(LoopStats::MQTT, tm);
+  temperatureTask(now);
+  lstatMark(LoopStats::TEMP, tm);
+  buttonTask(now);
+  lstatMark(LoopStats::BTN, tm);
+  if (acalStartPending) { acalStartPending = false; startAutoCal(now); }
+  autoCalTask(now);
+
+  if (now - lastSendTime >= SEND_INTERVAL_MS) {
+    lastSendTime = now;
+    publishState();
+    pushHistory();
+    lastIntervalBubbles = bubbleCount;
+    bubbleCount = 0;
+  }
+
+  if (pendingNetApply) {
+    pendingNetApply = false;
+    // Only the network/identity fields come from the form; thresholds stay as they are
+    strlcpy(config.wifi_ssid,      pendingNet.wifi_ssid,      sizeof(config.wifi_ssid));
+    strlcpy(config.wifi_password,  pendingNet.wifi_password,  sizeof(config.wifi_password));
+    strlcpy(config.mqtt_server,    pendingNet.mqtt_server,    sizeof(config.mqtt_server));
+    config.mqtt_port = pendingNet.mqtt_port;
+    strlcpy(config.mqtt_user,      pendingNet.mqtt_user,      sizeof(config.mqtt_user));
+    strlcpy(config.mqtt_password,  pendingNet.mqtt_password,  sizeof(config.mqtt_password));
+    strlcpy(config.mqtt_client_id, pendingNet.mqtt_client_id, sizeof(config.mqtt_client_id));
+    strlcpy(config.hostname,       pendingNet.hostname,       sizeof(config.hostname));
+    sanitizeHostname(config.hostname);
+    if (!strlen(config.hostname)) strlcpy(config.hostname, deviceId, sizeof(config.hostname));
+    if (!strlen(config.mqtt_client_id)) strlcpy(config.mqtt_client_id, deviceId, sizeof(config.mqtt_client_id));
+    saveConfig();
+    pendingRestartAt = now + 800;
+  }
+  if (pendingSave) {
+    pendingSave = false;
+    saveConfig();
+  }
+  if (pendingSettingsPublish && mqttUp) {
+    pendingSettingsPublish = false;
+    publishSettings();
+  }
+  if (pendingRestartAt && (int32_t)(now - pendingRestartAt) >= 0) {
+    Serial.println("Restarting");
+    if (mqttUp) mqtt.publish(topicAvail, "offline", true);
+    delay(100);
+    ESP.restart();
+  }
+
+  screenTask(now);
+  lstatMark(LoopStats::SCREEN, tm);
+  uint32_t iterUs = micros() - tIter;
+  if (iterUs > lstat.curIterUs) lstat.curIterUs = iterUs;
+  lstat.curIterations++;
+  lstat.curSumIterUs += iterUs;
+  if (now - lstat.windowStart >= 1000) {
+    lstat.windowStart = now;
+    for (int i = 0; i < LoopStats::N; i++) { lstat.maxUs[i] = lstat.curUs[i]; lstat.curUs[i] = 0; }
+    lstat.maxIterUs = lstat.curIterUs;       lstat.curIterUs = 0;
+    lstat.iterations = lstat.curIterations;  lstat.curIterations = 0;
+    lstat.imuNone = lstat.curImuNone;        lstat.curImuNone = 0;
+    lstat.sumIterUs = lstat.curSumIterUs;    lstat.curSumIterUs = 0;
+  }
+}
+
+// =============================================================================
+// Bubble detection
+// =============================================================================
+// One gyro sample -> impulse detector + event bookkeeping.
+//  * Baseline (gyro bias, up to several deg/s on an MPU6886): learned from the first *still*
+//    window after boot (per-axis range of the last ~500 ms below STILL_RANGE) and tracked only in
+//    still windows afterwards, so handling the device cannot drag it away and a stale offset
+//    recovers within a second at rest. Under permanent vibration (no still window for a minute)
+//    the window mean is tracked slowly instead, so temperature drift is still followed.
+//  * Noise floor: deviation from the window mean while still (offset free, no feedback).
+//  * Vibration floor: median / recent minimum of 50 ms bin maxima; a hum or a rocking shelf raises
+//    the effective trigger above its own amplitude instead of being counted at the spacing limit.
+//  * A blop is an impulse: the bias-corrected magnitude exceeds the trigger AND rose sharply
+//    (RISE_SAMPLES) by more than RISE_FRACTION x trigger and ENV_FRACTION x the recent envelope.
+//    The slow rocking after a strong knock neither merges the following blops nor counts twice.
+//  * debounce_time is the minimum spacing between two counted blops.
+//  * Events (start .. settled below release, MAX_EVENT_MS, or the next impulse) only feed the
+//    diagnostics: peak, duration, auto-calibration.
+void detRelearn(uint32_t now) {
+  det.biasReady = false;
+  det.readyWaitStart = now ? now : 1;
+  det.histN = 0;
+  det.inEvent = false;
+  det.belowSinceMs = 0;
+  det.eventPeak = 0;
+}
+
+void processGyroSample(float gx, float gy, float gz, uint32_t now) {
+  const float g[3] = {gx, gy, gz};
+  det.sampleCount++;
+  if (!det.readyWaitStart) det.readyWaitStart = now ? now : 1;
+
+  // --- still window: ring of raw samples, per-axis range and mean ---
+  if (det.winN == STILL_WINDOW) {
+    for (int i = 0; i < 3; i++) det.winSum[i] -= det.win[det.winIdx][i];
+  } else {
+    det.winN++;
+  }
+  for (int i = 0; i < 3; i++) { det.win[det.winIdx][i] = g[i]; det.winSum[i] += g[i]; }
+  det.winIdx = (det.winIdx + 1) % STILL_WINDOW;
+  float wmean[3] = {0, 0, 0};
+  bool still = false;
+  if (det.winN == STILL_WINDOW) {
+    float mn[3] = {1e9f, 1e9f, 1e9f}, mx[3] = {-1e9f, -1e9f, -1e9f};
+    for (uint8_t k = 0; k < STILL_WINDOW; k++) {
+      for (int i = 0; i < 3; i++) {
+        const float v = det.win[k][i];
+        if (v < mn[i]) mn[i] = v;
+        if (v > mx[i]) mx[i] = v;
       }
-      
-      // Calculate magnitude
-      float magnitude = sqrt(avgX*avgX + avgY*avgY + avgZ*avgZ);
-      
-      // Apply both thresholds
-      float effectiveThreshold = max(config.gyro_threshold, config.min_activity_threshold);
-      
-      // Check for vibration
-      unsigned long currentTime = millis();
-      if (magnitude > effectiveThreshold && 
-          (currentTime - lastDetectionTime > config.debounce_time)) {
-        
-        bubbleCount++;
-        Serial.printf("Vibration detected! Magnitude: %.2f (Threshold: %.2f)\n", 
-                     magnitude, effectiveThreshold);
-        showBubbleAnimation();
-        
-        lastDetectionTime = currentTime;
+    }
+    still = true;
+    for (int i = 0; i < 3; i++) {
+      wmean[i] = det.winSum[i] / STILL_WINDOW;
+      if (mx[i] - mn[i] >= STILL_RANGE) still = false;
+    }
+  }
+  det.still = still;
+
+  // --- baseline ---
+  if (!det.biasReady) {
+    if (det.winN < STILL_WINDOW) return;
+    const bool timeout = now - det.readyWaitStart >= BOOT_STILL_TIMEOUT_MS;
+    if (!still && !timeout) return;
+    for (int i = 0; i < 3; i++) det.bias[i] = wmean[i];
+    det.biasReady = true;
+    det.lastStillMs = now;
+    Serial.printf("Baseline ready (%s): %.2f %.2f %.2f deg/s\n", still ? "still window" : "timeout, device not still",
+                  det.bias[0], det.bias[1], det.bias[2]);
+    return;
+  }
+  if (still) {
+    det.lastStillMs = now;
+    for (int i = 0; i < 3; i++) det.bias[i] += (wmean[i] - det.bias[i]) * BIAS_ALPHA_STILL;
+    const float d0 = g[0] - wmean[0], d1 = g[1] - wmean[1], d2 = g[2] - wmean[2];
+    det.noise += (sqrtf(d0 * d0 + d1 * d1 + d2 * d2) - det.noise) * NOISE_ALPHA;
+  } else if (now - det.lastStillMs >= NOT_STILL_FALLBACK_MS) {
+    for (int i = 0; i < 3; i++) det.bias[i] += (wmean[i] - det.bias[i]) * BIAS_ALPHA_SLOW;
+  }
+
+  const float dx = g[0] - det.bias[0], dy = g[1] - det.bias[1], dz = g[2] - det.bias[2];
+  const float mag = sqrtf(dx * dx + dy * dy + dz * dz);
+
+  // --- vibration floor from 50 ms bin maxima ---
+  if (!det.vibBinStart) det.vibBinStart = now ? now : 1;
+  if (now - det.vibBinStart >= VIB_BIN_MS) {
+    det.vibBins[det.vibIdx] = det.vibCur;
+    det.vibIdx = (det.vibIdx + 1) % VIB_BINS;
+    if (det.vibN < VIB_BINS) det.vibN++;
+    if (acal.phase == AutoCal::QUIET) {                  // keep the three largest bins of the quiet phase
+      float v = det.vibCur;
+      for (int k = 0; k < 3; k++) if (v > acal.quietTop[k]) { float t = acal.quietTop[k]; acal.quietTop[k] = v; v = t; }
+      acal.quietMax = acal.quietTop[2];
+    }
+    det.vibCur = 0;
+    det.vibBinStart = now;
+    if (det.vibN >= 8) {
+      float sorted[VIB_BINS];
+      memcpy(sorted, det.vibBins, det.vibN * sizeof(float));
+      for (uint8_t i = 1; i < det.vibN; i++) {           // insertion sort (40 values every 50 ms)
+        float v = sorted[i]; int j = i - 1;
+        while (j >= 0 && sorted[j] > v) { sorted[j + 1] = sorted[j]; j--; }
+        sorted[j + 1] = v;
+      }
+      const float median = sorted[det.vibN / 2];
+      float recentMin = 1e9f;
+      for (uint8_t k = 1; k <= VIB_RECENT && k <= det.vibN; k++) {
+        const float v = det.vibBins[(det.vibIdx + VIB_BINS - k) % VIB_BINS];
+        if (v < recentMin) recentMin = v;
+      }
+      det.vib = fmaxf(median, recentMin);
+    }
+  }
+  if (mag > det.vibCur) det.vibCur = mag;
+
+  // Effective levels: the configured values, but never inside the noise floor or the vibration level
+  float trigger = fmaxf(fmaxf(config.gyro_threshold, det.noise * NOISE_TRIGGER_FACTOR), det.vib * VIB_FACTOR);
+  float release = fminf(fmaxf(config.min_activity_threshold, det.noise * NOISE_RELEASE_FACTOR), trigger * 0.8f);
+  float riseFraction = RISE_FRACTION;
+  if (acal.phase == AutoCal::QUIET) {
+    acal.quietSum += mag;
+    acal.quietN++;
+  } else if (acal.phase == AutoCal::ACTIVE) {   // collect blops with deliberately low levels: clear impulses only
+    trigger = acal.provTrigger;
+    release = acal.provRelease;
+    riseFraction = 1.0f;
+  }
+  det.trigger = trigger;
+  det.release = release;
+
+  // rise against the minimum of the last RISE_SAMPLES, envelope over the ENV_SAMPLES before those
+  float minRecent = mag, envelope = 0;
+  for (uint8_t i = 0; i < det.histN; i++) {
+    float v = det.hist[(det.histIdx + ENV_SAMPLES - 1 - i) % ENV_SAMPLES];   // i = 0 is the newest
+    if (i < RISE_SAMPLES) { if (v < minRecent) minRecent = v; }
+    else if (v > envelope) envelope = v;
+  }
+  const float rise = mag - minRecent;
+  const bool impulse = mag > trigger && rise > fmaxf(trigger * riseFraction, envelope * ENV_FRACTION);
+
+  // Handling guard: sustained violent motion pauses counting
+  const float env = fmaxf(envelope, mag);
+  if (env > trigger * HANDLING_FACTOR) {
+    det.calmSinceMs = 0;
+    if (!det.handlingSinceMs) det.handlingSinceMs = now ? now : 1;
+    else if (!det.handling && now - det.handlingSinceMs >= HANDLING_ON_MS) {
+      det.handling = true;
+      det.handlingSuppressed = 0;
+      Serial.println("Handling detected - counting paused");
+    }
+  } else {
+    det.handlingSinceMs = 0;
+    if (det.handling) {
+      if (env < trigger * 2) {
+        if (!det.calmSinceMs) det.calmSinceMs = now ? now : 1;
+        else if (now - det.calmSinceMs >= HANDLING_OFF_MS) {
+          det.handling = false;
+          Serial.printf("Handling over - counting resumed (%lu impulses ignored)\n", (unsigned long)det.handlingSuppressed);
+        }
+      } else {
+        det.calmSinceMs = 0;
       }
     }
-    
-    // Send data at regular intervals
-    unsigned long currentTime = millis();
-    if (currentTime - lastSendTime > sendInterval) {
-      sendMQTT();
-      updateHistory();
-      bubbleCount = 0;
-      lastSendTime = currentTime;
-      
-      displayConnectionStatus();
+  }
+
+  bool started = false;
+  if (impulse && det.handling) {
+    det.handlingSuppressed++;
+    if (det.inEvent) endEvent(now);
+  } else if (impulse && now - det.lastCountMs >= (uint32_t)config.debounce_time) {
+    if (det.inEvent) endEvent(now);          // previous blop still ringing: close it, keep its peak
+    det.inEvent = true;
+    det.eventStartMs = now;
+    det.belowSinceMs = 0;
+    det.eventPeak = mag;
+    det.lastCountMs = now;
+    det.lastRise = rise;
+    bubbleCount++;
+    totalBubbles++;
+    rollBins[rollIdx]++;
+    rollingCount++;
+    flashPending = true;
+    started = true;
+    Serial.printf("Blop #%d  %.2f deg/s (rise %.2f)\n", bubbleCount, mag, rise);
+  } else if (det.inEvent) {
+    if (mag > det.eventPeak) det.eventPeak = mag;
+    if (mag < release) {
+      if (det.belowSinceMs == 0) det.belowSinceMs = now ? now : 1;
+      else if (now - det.belowSinceMs >= RELEASE_HOLD_MS) endEvent(now);
+    } else {
+      det.belowSinceMs = 0;
+    }
+    if (det.inEvent && now - det.eventStartMs > MAX_EVENT_MS) endEvent(now);
+  }
+
+  det.hist[det.histIdx] = mag;
+  det.histIdx = (det.histIdx + 1) % ENV_SAMPLES;
+  if (det.histN < ENV_SAMPLES) det.histN++;
+
+  traceMag[traceIdx]   = mag;
+  traceMs[traceIdx]    = now;
+  traceFlags[traceIdx] = (det.inEvent ? 1 : 0) | (started ? 2 : 0);
+  traceIdx = (traceIdx + 1) % TRACE_LEN;
+}
+
+void endEvent(uint32_t now) {
+  det.inEvent = false;
+  det.lastEventEndMs = now;
+  det.lastPeak = det.eventPeak;
+  if (acal.phase == AutoCal::ACTIVE && acal.nPeaks < ACAL_MAX_PEAKS) acal.peaks[acal.nPeaks++] = det.eventPeak;
+}
+
+// =============================================================================
+// Auto-calibration
+// =============================================================================
+void startAutoCal(uint32_t now) {
+  acal = AutoCal();
+  acal.phase = AutoCal::WAIT_STILL;
+  acal.phaseStart = now;
+  acal.stillSince = 0;
+  strlcpy(acal.message, "Keep the device still", sizeof(acal.message));
+  Serial.println("Auto-cal: waiting for the device to be still");
+  lastScreenDraw = 0;
+}
+
+static void autoCalFinish(uint32_t now) {
+  const float quietMean = acal.quietN ? acal.quietSum / acal.quietN : 0;
+  const float floorPeak = fmaxf(acal.quietMax, quietMean * 2.5f);   // what "quiet" reaches at most
+  if (acal.nPeaks < ACAL_MIN_PEAKS) {
+    acal.phase = AutoCal::FAILED;
+    snprintf(acal.message, sizeof(acal.message), "Only %u blop%s seen, need %u", acal.nPeaks, acal.nPeaks == 1 ? "" : "s", ACAL_MIN_PEAKS);
+  } else {
+    for (uint8_t i = 1; i < acal.nPeaks; i++) {          // insertion sort, ascending
+      float v = acal.peaks[i]; int j = i - 1;
+      while (j >= 0 && acal.peaks[j] > v) { acal.peaks[j + 1] = acal.peaks[j]; j--; }
+      acal.peaks[j + 1] = v;
+    }
+    // drop event peaks that are not clearly above the noise before taking the lower quartile
+    uint8_t kept = 0;
+    for (uint8_t i = 0; i < acal.nPeaks; i++) if (acal.peaks[i] >= floorPeak * 1.5f) acal.peaks[kept++] = acal.peaks[i];
+    if (kept >= ACAL_MIN_PEAKS) acal.nPeaks = kept;
+    const float weak = acal.peaks[acal.nPeaks / 4];       // lower quartile: the weak blops must still count
+    if (weak < floorPeak * 1.5f) {
+      acal.phase = AutoCal::FAILED;
+      snprintf(acal.message, sizeof(acal.message), "Blops (%.1f) too close to noise (%.1f)", weak, floorPeak);
+    } else {
+      float trig = sqrtf(floorPeak * weak);                // geometric mean between noise peaks and weak blops
+      trig = fmaxf(trig, floorPeak * 1.2f);
+      trig = fminf(trig, weak * 0.8f);
+      trig = roundf(fminf(fmaxf(trig, TRIGGER_MIN), TRIGGER_MAX) * 10) / 10;
+      float rel = fmaxf(trig * 0.3f, quietMean * 2.5f);
+      rel = fminf(rel, trig * 0.8f);
+      rel = roundf(fminf(fmaxf(rel, RELEASE_MIN), RELEASE_MAX) * 20) / 20;
+      acal.trigger = trig;
+      acal.release = rel;
+      applySetting("gyro_threshold", trig);
+      applySetting("min_activity_threshold", rel);
+      acal.phase = AutoCal::DONE;
+      snprintf(acal.message, sizeof(acal.message), "Trigger %.1f, release %.2f from %u blops (noise %.2f)", trig, rel, acal.nPeaks, floorPeak);
+    }
+  }
+  acal.showUntil = now + 8000;
+  lastScreenDraw = 0;
+  Serial.printf("Auto-cal %s: %s\n", acal.phase == AutoCal::DONE ? "done" : "failed", acal.message);
+}
+
+void autoCalTask(uint32_t now) {
+  if (acal.phase == AutoCal::WAIT_STILL) {
+    if (det.still && det.biasReady) {
+      if (!acal.stillSince) acal.stillSince = now ? now : 1;
+      else if (now - acal.stillSince >= ACAL_STILL_NEEDED_MS) {
+        acal.phase = AutoCal::QUIET;      // the baseline has just been refreshed by the still window
+        acal.phaseStart = now;
+        acal.quietSum = 0; acal.quietN = 0; acal.quietMax = 0;
+        acal.quietTop[0] = acal.quietTop[1] = acal.quietTop[2] = 0;
+        Serial.println("Auto-cal: quiet phase, keep the device still");
+        lastScreenDraw = 0;
+      }
+    } else {
+      acal.stillSince = 0;
+      if (now - acal.phaseStart >= ACAL_STILL_WAIT_MS) {
+        acal.phase = AutoCal::FAILED;
+        strlcpy(acal.message, "Device not still - try again", sizeof(acal.message));
+        acal.showUntil = now + 8000;
+        Serial.println("Auto-cal failed: device not still");
+        lastScreenDraw = 0;
+      }
+    }
+    return;
+  }
+  if (acal.phase == AutoCal::QUIET && now - acal.phaseStart >= ACAL_QUIET_MS) {
+    const float quietMean = acal.quietN ? acal.quietSum / acal.quietN : 0;
+    if (acal.quietMax <= 0) acal.quietMax = acal.quietTop[0];   // fewer than three bins (should not happen)
+    // clear impulses only: well above the noise bins and the noise mean, never below 1.2 deg/s
+    acal.provTrigger = fmaxf(fmaxf(acal.quietMax * 2.0f, quietMean * 6.0f), 1.2f);
+    acal.provRelease = fmaxf(acal.provTrigger * 0.5f, quietMean * 2.0f);
+    acal.phase = AutoCal::ACTIVE;
+    acal.phaseStart = now;
+    acal.nPeaks = 0;
+    strlcpy(acal.message, "Now make blops", sizeof(acal.message));
+    Serial.printf("Auto-cal: quiet max %.2f mean %.2f -> collecting blops at %.2f/%.2f\n", acal.quietMax, quietMean, acal.provTrigger, acal.provRelease);
+    lastScreenDraw = 0;
+  } else if (acal.phase == AutoCal::ACTIVE && now - acal.phaseStart >= ACAL_ACTIVE_MS) {
+    autoCalFinish(now);
+  }
+}
+
+// =============================================================================
+// Settings (shared by web UI, MQTT commands and HA number entities)
+// =============================================================================
+bool applySetting(const char* key, float v) {
+  if (!strcmp(key, "autocal")) {          // command, not a setting
+    if (v != 0) acalStartPending = true;
+    return true;
+  }
+  if (!strcmp(key, "gyro_threshold")) {
+    if (v < TRIGGER_MIN || v > TRIGGER_MAX) return false;
+    config.gyro_threshold = v;
+  } else if (!strcmp(key, "min_activity_threshold")) {
+    if (v < RELEASE_MIN || v > RELEASE_MAX) return false;
+    config.min_activity_threshold = v;
+  } else if (!strcmp(key, "debounce_time")) {
+    int ms = (int)lroundf(v);
+    if (ms < REFRACT_MIN || ms > REFRACT_MAX) return false;
+    config.debounce_time = ms;
+  } else if (!strcmp(key, "legacy_topics")) {
+    config.legacy_topics = v != 0;
+  } else {
+    return false;
+  }
+  Serial.printf("Setting %s = %.3f\n", key, v);
+  pendingSave = true;
+  pendingSettingsPublish = true;
+  return true;
+}
+
+bool applySettingText(const char* key, const char* value) {
+  if (!strcmp(key, "autocal")) return applySetting(key, 1.0f);
+  if (!strcmp(key, "legacy_topics")) {
+    bool on = !strcmp(value, "1") || !strcasecmp(value, "true") || !strcasecmp(value, "on");
+    return applySetting(key, on ? 1.0f : 0.0f);
+  }
+  return applySetting(key, atof(value));
+}
+
+void applySettingJson(const char* key, JsonVariantConst v) {
+  if (v.is<bool>()) applySetting(key, v.as<bool>() ? 1.0f : 0.0f);
+  else if (v.is<float>()) applySetting(key, v.as<float>());
+  else if (v.is<const char*>()) applySettingText(key, v.as<const char*>());
+}
+
+// =============================================================================
+// Identity & persistence
+// =============================================================================
+void makeDeviceId() {
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  snprintf(deviceId, sizeof(deviceId), "tipsy-%02x%02x%02x", mac[3], mac[4], mac[5]);
+}
+
+void buildTopics() {
+  snprintf(topicState,     sizeof(topicState),     "sensors/bubble/%s", deviceId);
+  snprintf(topicTemp1,     sizeof(topicTemp1),     "sensors/temperature/%s-1", deviceId);
+  snprintf(topicTemp2,     sizeof(topicTemp2),     "sensors/temperature/%s-2", deviceId);
+  snprintf(topicSettings,  sizeof(topicSettings),  "tipsy/%s/settings", deviceId);
+  snprintf(topicAvail,     sizeof(topicAvail),     "tipsy/%s/availability", deviceId);
+  snprintf(topicSet,       sizeof(topicSet),       "tipsy/%s/set", deviceId);
+  snprintf(topicSetPrefix, sizeof(topicSetPrefix), "tipsy/%s/set/", deviceId);
+}
+
+// mDNS/DHCP host names: lower-case letters, digits and '-' only
+void sanitizeHostname(char* s) {
+  for (char* p = s; *p; p++) {
+    if (*p >= 'A' && *p <= 'Z') *p = *p - 'A' + 'a';
+    else if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '-')) *p = '-';
+  }
+}
+
+void loadConfig() {
+  bool have = false, resave = false;
+  if (prefs.begin("tipsy", true)) {
+    have = prefs.isKey("wifi_ssid");
+    if (have) {
+      prefs.getString("wifi_ssid",  config.wifi_ssid,      sizeof(config.wifi_ssid));
+      prefs.getString("wifi_pass",  config.wifi_password,  sizeof(config.wifi_password));
+      prefs.getString("mqtt_host",  config.mqtt_server,    sizeof(config.mqtt_server));
+      config.mqtt_port = prefs.getInt("mqtt_port", TIPSY_MQTT_PORT);
+      prefs.getString("mqtt_user",  config.mqtt_user,      sizeof(config.mqtt_user));
+      prefs.getString("mqtt_pass",  config.mqtt_password,  sizeof(config.mqtt_password));
+      prefs.getString("mqtt_cid",   config.mqtt_client_id, sizeof(config.mqtt_client_id));
+      prefs.getString("hostname",   config.hostname,       sizeof(config.hostname));
+      config.gyro_threshold         = prefs.getFloat("gyro_thr", config.gyro_threshold);
+      config.min_activity_threshold = prefs.getFloat("rel_thr", config.min_activity_threshold);
+      config.debounce_time          = prefs.getInt("refract_ms", config.debounce_time);
+      config.legacy_topics          = prefs.getBool("legacy", config.legacy_topics);
+      int ver = prefs.getInt("cfg_ver", 1);
+      if (ver < CONFIG_VERSION) {
+        Config fresh;
+        if (ver < 2) {   // 2.0.0 defaults sat inside the gyro noise: re-apply trigger and release
+          config.gyro_threshold         = fresh.gyro_threshold;
+          config.min_activity_threshold = fresh.min_activity_threshold;
+        }
+        if (ver < 4) {   // 2.0.4 changed debounce_time from "refractory after event" to "spacing between counts"
+          config.debounce_time = fresh.debounce_time;
+        }
+        Serial.printf("Config v%d -> v%d: detector defaults updated\n", ver, CONFIG_VERSION);
+        resave = true;
+      }
+    }
+    prefs.end();
+  }
+  if (resave) saveConfig();
+
+  // Migrate a 1.x /config.json from SPIFFS into NVS (one-off)
+  if (!have && SPIFFS.exists("/config.json")) {
+    File f = SPIFFS.open("/config.json", "r");
+    JsonDocument doc;
+    if (f && !deserializeJson(doc, f)) {
+      strlcpy(config.wifi_ssid,      doc["wifi_ssid"]      | "", sizeof(config.wifi_ssid));
+      strlcpy(config.wifi_password,  doc["wifi_password"]  | "", sizeof(config.wifi_password));
+      strlcpy(config.mqtt_server,    doc["mqtt_server"]    | "", sizeof(config.mqtt_server));
+      config.mqtt_port = doc["mqtt_port"] | 1883;
+      strlcpy(config.mqtt_user,      doc["mqtt_user"]      | "", sizeof(config.mqtt_user));
+      strlcpy(config.mqtt_password,  doc["mqtt_password"]  | "", sizeof(config.mqtt_password));
+      strlcpy(config.mqtt_client_id, doc["mqtt_client_id"] | "", sizeof(config.mqtt_client_id));
+      strlcpy(config.hostname,       doc["hostname"]       | "", sizeof(config.hostname));
+      // detector values are NOT taken over: 1.x used other semantics (0.5 deg/s absolute, 1 s dead time)
+      have = true;
+      Serial.println("Migrated 1.x config.json (network/identity) to NVS");
+    }
+    if (f) f.close();
+    SPIFFS.remove("/config.json");
+    if (have) saveConfig();
+  }
+
+  sanitizeHostname(config.hostname);
+  if (!strlen(config.hostname)) strlcpy(config.hostname, deviceId, sizeof(config.hostname));
+  if (!strlen(config.mqtt_client_id)) strlcpy(config.mqtt_client_id, deviceId, sizeof(config.mqtt_client_id));
+
+  if (have) {
+    Serial.println("Config loaded from NVS");
+  } else if (strlen(config.wifi_ssid)) {
+    Serial.println("No stored config - using compiled-in defaults");
+    saveConfig();
+  } else {
+    Serial.println("No config - starting setup portal");
+  }
+}
+
+void saveConfig() {
+  if (!prefs.begin("tipsy", false)) {
+    Serial.println("NVS open failed");
+    return;
+  }
+  prefs.putString("wifi_ssid",  config.wifi_ssid);
+  prefs.putString("wifi_pass",  config.wifi_password);
+  prefs.putString("mqtt_host",  config.mqtt_server);
+  prefs.putInt("mqtt_port",     config.mqtt_port);
+  prefs.putString("mqtt_user",  config.mqtt_user);
+  prefs.putString("mqtt_pass",  config.mqtt_password);
+  prefs.putString("mqtt_cid",   config.mqtt_client_id);
+  prefs.putString("hostname",   config.hostname);
+  prefs.putFloat("gyro_thr",    config.gyro_threshold);
+  prefs.putFloat("rel_thr",     config.min_activity_threshold);
+  prefs.putInt("refract_ms",    config.debounce_time);
+  prefs.putBool("legacy",       config.legacy_topics);
+  prefs.putInt("cfg_ver",       CONFIG_VERSION);
+  prefs.end();
+  Serial.println("Config saved");
+}
+
+void factoryReset() {
+  Serial.println("Factory reset");
+  displayStatus("Factory reset", RED);
+  if (prefs.begin("tipsy", false)) {
+    prefs.clear();
+    prefs.end();
+  }
+  delay(1000);
+  ESP.restart();
+}
+
+bool isoTimestamp(char* buf, size_t n) {
+  time_t t = time(nullptr);
+  if (t < 1700000000) return false;   // not synced yet
+  struct tm tm;
+  gmtime_r(&t, &tm);
+  strftime(buf, n, "%Y-%m-%dT%H:%M:%SZ", &tm);
+  return true;
+}
+
+// =============================================================================
+// WiFi / services
+// =============================================================================
+void connectWifiBlocking() {
+  Serial.printf("Connecting to %s ", config.wifi_ssid);
+  displayStatus("WiFi ...", YELLOW);
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
+  WiFi.setHostname(config.hostname);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(config.wifi_ssid, config.wifi_password);
+
+  uint32_t start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_BOOT_WAIT_MS) {
+    delay(100);
+    M5.Display.fillRect(0, 120, (millis() - start) * M5.Display.width() / WIFI_BOOT_WAIT_MS, 6, BLUE);
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("ok, IP %s\n", WiFi.localIP().toString().c_str());
+    displayStatus("WiFi ok", GREEN);
+  } else {
+    Serial.println("failed - opening setup AP, STA keeps retrying");
+    displayStatus("WiFi failed", RED);
+  }
+}
+
+void startAccessPoint() {
+  if (apActive) return;
+  apActive = true;
+  WiFi.mode(configured ? WIFI_AP_STA : WIFI_AP);
+  char apName[40];
+  snprintf(apName, sizeof(apName), "TIPSYlab %s", deviceId);
+  WiFi.softAP(apName, TIPSY_AP_PASS);
+  dnsServer.start(53, "*", WiFi.softAPIP());   // captive portal: every name -> us
+  Serial.printf("Setup AP '%s' at http://%s/\n", apName, WiFi.softAPIP().toString().c_str());
+}
+
+// Called once when the first IP is obtained (boot or later, after a fallback to AP+STA)
+void startNetworkServices() {
+  servicesStarted = true;
+
+  ArduinoOTA.setHostname(config.hostname);
+  if (strlen(TIPSY_OTA_PASS)) ArduinoOTA.setPassword(TIPSY_OTA_PASS);
+  ArduinoOTA.onStart([]() {
+    otaInProgress = true;
+    bool fs = ArduinoOTA.getCommand() == U_SPIFFS;
+    if (fs) SPIFFS.end();
+    displayStatus(fs ? "OTA: web files" : "OTA: firmware", CYAN);
+    Serial.println(fs ? "OTA filesystem update" : "OTA firmware update");
+  });
+  ArduinoOTA.onProgress([](unsigned int done, unsigned int total) {
+    M5.Display.fillRect(0, 120, done * M5.Display.width() / total, 8, GREEN);
+  });
+  ArduinoOTA.onEnd([]() {
+    displayStatus("OTA ok, reboot", GREEN);
+  });
+  ArduinoOTA.onError([](ota_error_t e) {
+    otaInProgress = false;
+    SPIFFS.begin(true);
+    Serial.printf("OTA error %u\n", e);
+    displayStatus("OTA failed", RED);
+  });
+  ArduinoOTA.begin();                       // also starts mDNS as <hostname>.local
+  MDNS.addService("http", "tcp", 80);
+
+  configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");   // UTC timestamps for the add-on
+
+  Serial.printf("http://%s.local  (OTA %s)\n", config.hostname, strlen(TIPSY_OTA_PASS) ? "password protected" : "open");
+}
+
+void networkTask(uint32_t now) {
+  bool up = WiFi.status() == WL_CONNECTED;
+  if (up && !servicesStarted) startNetworkServices();
+  if (!up && configured && now - lastWifiRetry >= WIFI_RETRY_MS) {
+    lastWifiRetry = now;
+    Serial.println("WiFi down - reconnecting");
+    WiFi.reconnect();
+  }
+}
+
+// =============================================================================
+// MQTT
+// =============================================================================
+void mqttTask(uint32_t now) {
+  if (!strlen(config.mqtt_server) || WiFi.status() != WL_CONNECTED) {
+    mqttUp = false;
+    return;
+  }
+  if (mqtt.connected()) {
+    mqttUp = true;
+    mqtt.loop();
+    return;
+  }
+  if (mqttUp) {
+    mqttUp = false;
+    Serial.println("MQTT connection lost");
+  }
+  if (now - lastMqttAttempt < mqttBackoff) return;
+  lastMqttAttempt = now;
+
+  const char* user = strlen(config.mqtt_user) ? config.mqtt_user : nullptr;
+  const char* pass = strlen(config.mqtt_password) ? config.mqtt_password : nullptr;
+  Serial.printf("MQTT %s:%d as %s ... ", config.mqtt_server, config.mqtt_port, config.mqtt_client_id);
+  if (mqtt.connect(config.mqtt_client_id, user, pass, topicAvail, 1, true, "offline")) {
+    Serial.println("connected");
+    mqttUp = true;
+    mqttBackoff = 5000;
+    char sub[72];
+    snprintf(sub, sizeof(sub), "%s#", topicSetPrefix);
+    mqtt.subscribe(sub);
+    mqtt.subscribe(topicSet);
+    mqtt.subscribe(LEGACY_TOPIC_SENSITIVITY);
+    mqtt.subscribe(LEGACY_TOPIC_MIN);
+    mqtt.subscribe(LEGACY_TOPIC_DEBOUNCE);
+    mqtt.publish(topicAvail, "online", true);
+    publishDiscovery();
+    publishSettings();
+  } else {
+    Serial.printf("failed rc=%d, retry in %lus\n", mqtt.state(), (unsigned long)(mqttBackoff / 1000));
+    mqttBackoff = mqttBackoff * 2 > 60000 ? 60000 : mqttBackoff * 2;
+  }
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  char msg[160];
+  if (length >= sizeof(msg)) length = sizeof(msg) - 1;
+  memcpy(msg, payload, length);
+  msg[length] = '\0';
+  Serial.printf("MQTT [%s] %s\n", topic, msg);
+
+  if (!strcmp(topic, LEGACY_TOPIC_SENSITIVITY))   applySettingText("gyro_threshold", msg);
+  else if (!strcmp(topic, LEGACY_TOPIC_MIN))      applySettingText("min_activity_threshold", msg);
+  else if (!strcmp(topic, LEGACY_TOPIC_DEBOUNCE)) applySettingText("debounce_time", msg);
+  else if (!strncmp(topic, topicSetPrefix, strlen(topicSetPrefix))) {
+    applySettingText(topic + strlen(topicSetPrefix), msg);
+  } else if (!strcmp(topic, topicSet)) {
+    JsonDocument doc;
+    if (!deserializeJson(doc, msg)) {
+      for (JsonPairConst kv : doc.as<JsonObjectConst>()) applySettingJson(kv.key().c_str(), kv.value());
     }
   }
 }
 
-// Start in Access Point mode for initial setup
-void startAPMode() {
-  apMode = true;
-  
-  // Set up access point
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP("Laboratoire Tresor Setup", "treasurelab");
-  
-  displayStatus("AP Mode", YELLOW);
-  Serial.println("AP Mode Started");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.softAPIP());
-  
-  // Display AP info
+// --- Home Assistant MQTT discovery -------------------------------------------
+static void addDeviceInfo(JsonDocument& doc) {
+  JsonObject dev = doc["device"].to<JsonObject>();
+  dev["identifiers"].to<JsonArray>().add(deviceId);
+  dev["name"] = config.hostname;
+  dev["manufacturer"] = "Laboratoire Tresor";
+  dev["model"] = "M5 AtomS3 bubble counter";
+  dev["sw_version"] = FW_VERSION;
+  doc["availability_topic"] = topicAvail;
+}
+
+static void publishDiscoveryDoc(const char* component, const char* object, JsonDocument& doc) {
+  char topic[96], uid[48], buf[900];
+  snprintf(topic, sizeof(topic), "homeassistant/%s/%s/%s/config", component, deviceId, object);
+  snprintf(uid, sizeof(uid), "%s_%s", deviceId, object);
+  doc["unique_id"] = uid;
+  addDeviceInfo(doc);
+  size_t n = serializeJson(doc, buf, sizeof(buf));
+  if (n >= sizeof(buf)) {
+    Serial.printf("discovery payload for %s too large\n", object);
+    return;
+  }
+  mqtt.publish(topic, (const uint8_t*)buf, n, true);
+}
+
+static void discoverSensor(const char* object, const char* name, const char* stateTopic, const char* key,
+                           const char* unit, const char* devClass, const char* stateClass, const char* icon,
+                           bool diagnostic) {
+  JsonDocument doc;
+  char tpl[64];
+  snprintf(tpl, sizeof(tpl), "{{ value_json.%s }}", key);
+  doc["name"] = name;
+  doc["state_topic"] = stateTopic;
+  doc["value_template"] = tpl;
+  if (unit)       doc["unit_of_measurement"] = unit;
+  if (devClass)   doc["device_class"] = devClass;
+  if (stateClass) doc["state_class"] = stateClass;
+  if (icon)       doc["icon"] = icon;
+  if (diagnostic) doc["entity_category"] = "diagnostic";
+  publishDiscoveryDoc("sensor", object, doc);
+}
+
+static void discoverNumber(const char* key, const char* name, float mn, float mx, float step,
+                           const char* unit, const char* icon) {
+  JsonDocument doc;
+  char tpl[64], cmd[80];
+  snprintf(tpl, sizeof(tpl), "{{ value_json.%s }}", key);
+  snprintf(cmd, sizeof(cmd), "%s%s", topicSetPrefix, key);
+  doc["name"] = name;
+  doc["state_topic"] = topicSettings;
+  doc["value_template"] = tpl;
+  doc["command_topic"] = cmd;
+  doc["min"] = mn;
+  doc["max"] = mx;
+  doc["step"] = step;
+  doc["mode"] = "slider";
+  doc["entity_category"] = "config";
+  if (unit) doc["unit_of_measurement"] = unit;
+  if (icon) doc["icon"] = icon;
+  publishDiscoveryDoc("number", key, doc);
+}
+
+static void discoverButton(const char* key, const char* name, const char* icon) {
+  JsonDocument doc;
+  char cmd[80];
+  snprintf(cmd, sizeof(cmd), "%s%s", topicSetPrefix, key);
+  doc["name"] = name;
+  doc["command_topic"] = cmd;
+  doc["payload_press"] = "1";
+  doc["entity_category"] = "config";
+  if (icon) doc["icon"] = icon;
+  publishDiscoveryDoc("button", key, doc);
+}
+
+void publishDiscovery() {
+  discoverSensor("bubbles", "Bubbles",          topicState, "bubbles", "bubbles", nullptr, "measurement", "mdi:chart-bubble", false);
+  discoverSensor("rate",    "Bubble rate",      topicState, "rate",    "/min",    nullptr, "measurement", "mdi:speedometer",  false);
+  discoverSensor("total",   "Bubbles total",    topicState, "total",   "bubbles", nullptr, "total_increasing", "mdi:counter", false);
+  discoverSensor("temp1",   "Temperature 1",    topicTemp1, "temperature", "°C", "temperature", "measurement", nullptr, false);
+  discoverSensor("temp2",   "Temperature 2",    topicTemp2, "temperature", "°C", "temperature", "measurement", nullptr, false);
+  discoverSensor("rssi",    "WiFi signal",      topicState, "rssi",  "dBm", "signal_strength", "measurement", nullptr, true);
+  discoverSensor("noise",   "Gyro noise floor", topicState, "noise", "°/s", nullptr, "measurement", "mdi:waveform", true);
+  discoverSensor("peak",    "Last bubble peak", topicState, "peak",  "°/s", nullptr, "measurement", "mdi:pulse",    true);
+  discoverNumber("gyro_threshold",         "Trigger threshold", TRIGGER_MIN, TRIGGER_MAX, 0.1f,  "°/s", "mdi:tune");
+  discoverNumber("min_activity_threshold", "Release threshold", RELEASE_MIN, RELEASE_MAX, 0.05f, "°/s", "mdi:tune-variant");
+  discoverNumber("debounce_time",          "Min. blop spacing", REFRACT_MIN, REFRACT_MAX, 10,    "ms",  "mdi:timer-outline");
+  discoverButton("autocal", "Auto-calibrate", "mdi:auto-fix");
+  Serial.println("HA discovery published");
+}
+
+void publishSettings() {
+  if (!mqttUp) return;
+  JsonDocument doc;
+  doc["gyro_threshold"] = config.gyro_threshold;
+  doc["min_activity_threshold"] = config.min_activity_threshold;
+  doc["debounce_time"] = config.debounce_time;
+  doc["legacy_topics"] = config.legacy_topics;
+  char buf[160];
+  size_t n = serializeJson(doc, buf, sizeof(buf));
+  mqtt.publish(topicSettings, (const uint8_t*)buf, n, true);
+}
+
+void publishState() {
+  Serial.printf("Interval: %d blops, T1 %.2f, T2 %.2f, noise %.3f, %lu Hz, loop max %lu ms (imu %lu net %lu mqtt %lu temp %lu btn %lu screen %lu other %lu)\n",
+                bubbleCount, tempC[0], tempC[1], det.noise, (unsigned long)det.sampleRate, (unsigned long)(lstat.maxIterUs / 1000),
+                (unsigned long)(lstat.maxUs[0] / 1000), (unsigned long)(lstat.maxUs[1] / 1000), (unsigned long)(lstat.maxUs[2] / 1000),
+                (unsigned long)(lstat.maxUs[3] / 1000), (unsigned long)(lstat.maxUs[4] / 1000), (unsigned long)(lstat.maxUs[5] / 1000), (unsigned long)(lstat.maxUs[6] / 1000));
+  if (!mqttUp) return;
+
+  char buf[512];
+  JsonDocument doc;
+  doc["sensor_id"]  = deviceId;
+  doc["bubbles"]    = bubbleCount;                               // per interval (not cumulative)
+  doc["cumulative"] = false;
+  doc["interval"]   = SEND_INTERVAL_MS / 1000;
+  doc["rate"]       = bubbleCount * 60000.0f / SEND_INTERVAL_MS; // per minute
+  doc["total"]      = totalBubbles;                              // since boot
+  doc["rate_60s"]   = rollingCount;                              // rolling 60 s window at send time
+  if (!isnan(tempC[0])) doc["temperature"] = roundf(tempC[0] * 100) / 100;
+  doc["rssi"]        = WiFi.RSSI();
+  doc["uptime"]      = millis() / 1000;
+  doc["noise"]       = roundf(det.noise * 1000) / 1000;
+  doc["peak"]        = roundf(det.lastPeak * 100) / 100;
+  doc["trigger"]     = roundf(det.trigger * 100) / 100;      // effective trigger level
+  doc["sample_rate"] = det.sampleRate;
+  doc["free_heap"]   = ESP.getFreeHeap();
+  doc["fw"]          = FW_VERSION;
+  char ts[32];
+  if (isoTimestamp(ts, sizeof(ts))) doc["timestamp"] = ts;
+  size_t n = serializeJson(doc, buf, sizeof(buf));
+  mqtt.publish(topicState, (const uint8_t*)buf, n, false);
+
+  for (int i = 0; i < 2; i++) {
+    if (isnan(tempC[i])) continue;
+    snprintf(buf, sizeof(buf), "{\"temperature\": %.2f, \"sensor_id\": \"%s-%d\"}", tempC[i], deviceId, i + 1);
+    mqtt.publish(i ? topicTemp2 : topicTemp1, buf);
+  }
+
+  if (config.legacy_topics) {   // 1.x format, keeps existing HA sensors/automations alive
+    snprintf(buf, sizeof(buf), "{\"blops\": %d}", bubbleCount);
+    mqtt.publish(LEGACY_TOPIC_BUBBLES, buf);
+    for (int i = 0; i < 2; i++) {
+      if (isnan(tempC[i])) continue;
+      snprintf(buf, sizeof(buf), "{\"temperature\": %.2f}", tempC[i]);
+      mqtt.publish(i ? LEGACY_TOPIC_TEMP2 : LEGACY_TOPIC_TEMP1, buf);
+    }
+  }
+}
+
+// =============================================================================
+// Temperature (DS18B20, non-blocking)
+// =============================================================================
+void temperatureTask(uint32_t now) {
+  if (groveUsedByImu) return;
+  if (!tempPending && now - lastTempScan >= TEMP_RESCAN_MS) {
+    lastTempScan = now;
+    // Count probes with a plain 1-Wire search (~1 ms without probes, ~10 ms per probe) and only
+    // re-run DallasTemperature::begin() - which blocks ~150 ms - when the count changed.
+    uint8_t n = 0;
+    if (oneWire.reset()) {
+      DeviceAddress addr;
+      oneWire.reset_search();
+      while (oneWire.search(addr)) {
+        if (OneWire::crc8(addr, 7) == addr[7] && addr[0] == 0x28) n++;
+      }
+    }
+    if (n != tempSensorCount) {
+      sensors.begin();
+      n = sensors.getDeviceCount();
+      Serial.printf("DS18B20 probes: %u\n", n);
+      tempSensorCount = n;
+    }
+  }
+  if (tempSensorCount == 0) {
+    tempC[0] = tempC[1] = NAN;
+    return;
+  }
+  if (!tempPending) {
+    if (now - lastTempRequest >= TEMP_INTERVAL_MS) {
+      sensors.requestTemperatures();
+      lastTempRequest = now;
+      tempPending = true;
+    }
+  } else if (now - lastTempRequest >= TEMP_CONVERSION_MS) {
+    tempPending = false;
+    for (int i = 0; i < 2; i++) {
+      float t = i < tempSensorCount ? sensors.getTempCByIndex(i) : DEVICE_DISCONNECTED_C;
+      tempC[i] = (t == DEVICE_DISCONNECTED_C || t < -50 || t > 120) ? NAN : t;
+    }
+  }
+}
+
+void pushHistory() {
+  bubbleHistory[historyIndex] = bubbleCount;
+  tempHistory1[historyIndex] = tempC[0];
+  tempHistory2[historyIndex] = tempC[1];
+  historyIndex = (historyIndex + 1) % MAX_HISTORY;
+}
+
+// =============================================================================
+// Button: click = relearn baseline, hold 5 s = factory reset
+// =============================================================================
+void buttonTask(uint32_t now) {
+  if (M5.BtnA.wasPressed()) btnPressStart = now ? now : 1;
+  if (M5.BtnA.isPressed() && btnPressStart && now - btnPressStart >= 5000) factoryReset();
+  if (M5.BtnA.wasReleased()) {
+    if (btnPressStart && now - btnPressStart < 1000) {
+      showDetails = !showDetails;     // main view (logo or counter) <-> diagnostics
+      detailsUntil = now + DETAILS_TIMEOUT_MS;
+      lastScreenDraw = 0;
+    }
+    btnPressStart = 0;
+  }
+}
+
+// =============================================================================
+// Display
+// =============================================================================
+void displayStatus(const char* message, uint16_t color) {
   M5.Display.clear();
   M5.Display.setTextSize(1);
-  M5.Display.setTextColor(YELLOW);
-  M5.Display.setCursor(5, 10);
-  M5.Display.println("Laboratoire Tresor");
-  M5.Display.setCursor(5, 30);
-  M5.Display.println("Connect to WiFi:");
-  M5.Display.setCursor(5, 45);
-  M5.Display.println("Laboratoire Tresor Setup");
-  M5.Display.setCursor(5, 60);
-  M5.Display.println("Password: treasurelab");
-  M5.Display.setCursor(5, 75);
-  M5.Display.println("Then open: 192.168.4.1");
-  
-  // Setup web server for configuration
-  setupConfigWebServer();
+  M5.Display.setTextColor(color);
+  M5.Display.setCursor(6, M5.Display.height() / 2 - 4);
+  M5.Display.println(message);
 }
 
-// Setup the configuration web server (AP mode)
-void setupConfigWebServer() {
-  // Serve the configuration page
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/config.html", "text/html");
-  });
-  
-  // Handle configuration submission
-  server.on("/save-config", HTTP_POST, [](AsyncWebServerRequest *request) {
-    // Process form data
-    if (request->hasParam("wifi_ssid", true)) {
-      strncpy(config.wifi_ssid, request->getParam("wifi_ssid", true)->value().c_str(), sizeof(config.wifi_ssid) - 1);
-    }
-    
-    if (request->hasParam("wifi_password", true)) {
-      strncpy(config.wifi_password, request->getParam("wifi_password", true)->value().c_str(), sizeof(config.wifi_password) - 1);
-    }
-    
-    if (request->hasParam("mqtt_server", true)) {
-      strncpy(config.mqtt_server, request->getParam("mqtt_server", true)->value().c_str(), sizeof(config.mqtt_server) - 1);
-    }
-    
-    if (request->hasParam("mqtt_port", true)) {
-      config.mqtt_port = request->getParam("mqtt_port", true)->value().toInt();
-    }
-    
-    if (request->hasParam("mqtt_user", true)) {
-      strncpy(config.mqtt_user, request->getParam("mqtt_user", true)->value().c_str(), sizeof(config.mqtt_user) - 1);
-    }
-    
-    if (request->hasParam("mqtt_password", true)) {
-      strncpy(config.mqtt_password, request->getParam("mqtt_password", true)->value().c_str(), sizeof(config.mqtt_password) - 1);
-    }
-    
-    if (request->hasParam("hostname", true)) {
-      strncpy(config.hostname, request->getParam("hostname", true)->value().c_str(), sizeof(config.hostname) - 1);
-    }
-    
-    if (request->hasParam("mqtt_client_id", true)) {
-      strncpy(config.mqtt_client_id, request->getParam("mqtt_client_id", true)->value().c_str(), sizeof(config.mqtt_client_id) - 1);
-    }
-    
-    // Save configuration to file
-    saveConfiguration();
-    
-    // Send response
-    request->send(200, "text/plain", "Configuration saved. Rebooting...");
-    
-    // Delay to allow response to be sent
-    delay(1000);
-    
-    // Restart the device
-    ESP.restart();
-  });
-  
-  // Serve CSS and JS files
-  server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/style.css", "text/css");
-  });
-  
-  server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/script.js", "application/javascript");
-  });
-  
-  // Start server
-  server.begin();
+void screenTask(uint32_t now) {
+  if (flashPending) {                 // one bubble = one coloured blob, no delays
+    flashPending = false;
+    static const uint16_t colors[] = {RED, ORANGE, YELLOW, GREEN, CYAN, BLUE, MAGENTA, WHITE};
+    int r = 12 + (int)fminf(det.eventPeak * 8, 48);
+    M5.Display.fillCircle(M5.Display.width() / 2, M5.Display.height() / 2, r, colors[random(0, 8)]);
+    flashUntil = now + 120;
+    return;
+  }
+  if (flashUntil) {
+    if ((int32_t)(now - flashUntil) < 0) return;
+    flashUntil = 0;
+    lastScreenDraw = 0;
+  }
+  if (logoReload) {
+    logoReload = false;
+    loadLogo();
+    lastScreenDraw = 0;
+  }
+  if (showDetails && (int32_t)(now - detailsUntil) >= 0) {
+    showDetails = false;
+    lastScreenDraw = 0;
+  }
+  if (now - lastScreenDraw < 1000) return;
+  lastScreenDraw = now;
+  if (acal.phase == AutoCal::WAIT_STILL || acal.phase == AutoCal::QUIET || acal.phase == AutoCal::ACTIVE ||
+      ((acal.phase == AutoCal::DONE || acal.phase == AutoCal::FAILED) && (int32_t)(now - acal.showUntil) < 0)) {
+    drawAutoCalScreen(now);
+    return;
+  }
+  if (!configured) drawSetupScreen();
+  else if (showDetails) drawStatusScreen(now);
+  else if (logoLoaded) drawLogoScreen();
+  else drawMainScreen();
 }
 
-// Setup the normal web server (connected mode)
+void drawAutoCalScreen(uint32_t now) {
+  const int w = M5.Display.width();
+  canvas.fillScreen(BLACK);
+  canvas.setTextDatum(lgfx::textdatum_t::top_center);
+  canvas.setTextSize(2);
+  canvas.setTextColor(CYAN);
+  canvas.drawString("AUTO-CAL", w / 2, 6);
+  canvas.setTextSize(1);
+  uint32_t left = 0;
+  if (acal.phase == AutoCal::QUIET)  left = (ACAL_QUIET_MS  - (now - acal.phaseStart) + 999) / 1000;
+  if (acal.phase == AutoCal::ACTIVE) left = (ACAL_ACTIVE_MS - (now - acal.phaseStart) + 999) / 1000;
+  if (acal.phase == AutoCal::WAIT_STILL) {
+    canvas.setTextColor(YELLOW);
+    canvas.drawString("Keep still...", w / 2, 40);
+    canvas.setTextColor(WHITE);
+    canvas.drawString(det.still ? "ok, hold it" : "not still yet", w / 2, 62);
+  } else if (acal.phase == AutoCal::QUIET) {
+    canvas.setTextColor(YELLOW);
+    canvas.drawString("Keep still", w / 2, 40);
+    canvas.setTextSize(4);
+    canvas.drawNumber(left, w / 2, 62);
+  } else if (acal.phase == AutoCal::ACTIVE) {
+    canvas.setTextColor(GREEN);
+    canvas.drawString("Make blops now!", w / 2, 40);
+    canvas.setTextSize(4);
+    canvas.drawNumber(left, w / 2, 62);
+    canvas.setTextSize(1);
+    canvas.setTextColor(WHITE);
+    char b[24];
+    snprintf(b, sizeof(b), "%u blops seen", acal.nPeaks);
+    canvas.drawString(b, w / 2, 104);
+  } else {
+    canvas.setTextColor(acal.phase == AutoCal::DONE ? GREEN : RED);
+    canvas.drawString(acal.phase == AutoCal::DONE ? "Done" : "Failed", w / 2, 40);
+    canvas.setTextColor(WHITE);
+    if (acal.phase == AutoCal::DONE) {
+      char b[32];
+      snprintf(b, sizeof(b), "trigger %.1f", acal.trigger);  canvas.drawString(b, w / 2, 62);
+      snprintf(b, sizeof(b), "release %.2f", acal.release); canvas.drawString(b, w / 2, 76);
+      snprintf(b, sizeof(b), "%u blops", acal.nPeaks);       canvas.drawString(b, w / 2, 90);
+    } else {
+      canvas.setTextDatum(lgfx::textdatum_t::top_left);
+      canvas.setCursor(2, 62);
+      canvas.print(acal.message);
+    }
+  }
+  canvas.setTextDatum(lgfx::textdatum_t::top_left);
+  canvas.pushSprite(0, 0);
+}
+
+// Default view: the count, temperatures if probes are attached, two status dots and the IP.
+void drawMainScreen() {
+  bool wifi = WiFi.status() == WL_CONNECTED;
+  const int w = M5.Display.width(), h = M5.Display.height();
+  canvas.fillScreen(BLACK);
+  canvas.setTextSize(1);
+  canvas.setTextColor(DARKGREY);
+  canvas.setCursor(2, 2);
+  canvas.print(config.hostname);
+
+  canvas.setTextColor(YELLOW);
+  canvas.setTextDatum(lgfx::textdatum_t::middle_center);
+  canvas.setTextSize(rollingCount < 1000 ? 5 : 4);
+  canvas.drawNumber(rollingCount, w / 2, 44);
+  canvas.setTextSize(1);
+  canvas.setTextColor(DARKGREY);
+  canvas.drawString(!det.biasReady ? "calibrating" : "bubbles/min", w / 2, 74);
+  canvas.setTextDatum(lgfx::textdatum_t::top_left);
+
+  if (tempSensorCount) {
+    canvas.setTextColor(WHITE);
+    canvas.setCursor(2, 92);
+    if (isnan(tempC[0])) canvas.print("T1 --.-");
+    else canvas.printf("T1 %.1f", tempC[0]);
+    canvas.setCursor(66, 92);
+    if (isnan(tempC[1])) canvas.print("T2 --.-");
+    else canvas.printf("T2 %.1f", tempC[1]);
+  }
+
+  canvas.fillCircle(6,  h - 7, 3, wifi ? GREEN : RED);    // WiFi
+  canvas.fillCircle(16, h - 7, 3, mqttUp ? GREEN : RED);  // MQTT
+  canvas.setTextColor(DARKGREY);
+  canvas.setCursor(26, h - 10);
+  canvas.print(wifi ? WiFi.localIP().toString() : (apActive ? WiFi.softAPIP().toString() : String("no wifi")));
+  canvas.pushSprite(0, 0);
+}
+
+const char* logoPath() {
+  if (SPIFFS.exists("/logo.png")) return "/logo.png";
+  if (SPIFFS.exists("/logo.jpg")) return "/logo.jpg";
+  return nullptr;
+}
+
+// Decode the logo once into a sprite (fit into 128 x 116, centred); drawing it later is a plain copy.
+bool loadLogo() {
+  const char* path = logoPath();
+  if (!path) {
+    if (logoLoaded) logo.deleteSprite();
+    logoLoaded = false;
+    showDetails = false;
+    return false;
+  }
+  const int w = M5.Display.width(), h = M5.Display.height() - LOGO_BAR_H;
+  if (!logo.getBuffer()) {
+    logo.setColorDepth(16);
+    if (!logo.createSprite(w, h)) {
+      Serial.println("Logo: not enough memory for the sprite");
+      return false;
+    }
+  }
+  logo.fillScreen(BLACK);
+  bool ok = strstr(path, ".png")
+    ? logo.drawPngFile(SPIFFS, path, 0, 0, w, h, 0, 0, 0.0f, 0.0f, lgfx::datum_t::middle_center)
+    : logo.drawJpgFile(SPIFFS, path, 0, 0, w, h, 0, 0, 0.0f, 0.0f, lgfx::datum_t::middle_center);
+  logo.releasePngMemory();   // the decoder keeps ~45 KB otherwise
+  if (!ok) logo.deleteSprite();
+  logoLoaded = ok;
+  showDetails = false;
+  Serial.printf("Logo %s: %s\n", path, ok ? "loaded" : "decode failed");
+  return ok;
+}
+
+void drawLogoScreen() {
+  bool wifi = WiFi.status() == WL_CONNECTED;
+  const int bar = M5.Display.height() - LOGO_BAR_H;
+  canvas.fillScreen(BLACK);
+  logo.pushSprite(&canvas, 0, 0);
+  canvas.setTextSize(1);
+  canvas.setTextColor(YELLOW);
+  canvas.setCursor(2, bar + 2);
+  canvas.printf("%d/min", rollingCount);
+  if (!det.biasReady) {
+    canvas.setTextColor(DARKGREY);
+    canvas.setCursor(64, bar + 2);
+    canvas.print("cal");
+  }
+  canvas.fillCircle(M5.Display.width() - 16, bar + 5, 3, wifi ? GREEN : RED);    // WiFi
+  canvas.fillCircle(M5.Display.width() - 6,  bar + 5, 3, mqttUp ? GREEN : RED);  // MQTT
+  canvas.pushSprite(0, 0);
+}
+
+void drawSetupScreen() {
+  canvas.fillScreen(BLACK);
+  canvas.setTextSize(1);
+  canvas.setTextColor(CYAN);   canvas.setCursor(2, 4);   canvas.print("TIPSYlab " FW_VERSION);
+  canvas.setTextColor(YELLOW); canvas.setCursor(2, 22);  canvas.print("Setup mode");
+  canvas.setTextColor(WHITE);
+  canvas.setCursor(2, 40);  canvas.print("WiFi:");
+  canvas.setCursor(2, 50);  canvas.printf("TIPSYlab %s", deviceId);
+  canvas.setCursor(2, 66);  canvas.printf("Pass: %s", TIPSY_AP_PASS);
+  canvas.setCursor(2, 84);  canvas.print("Then open");
+  canvas.setCursor(2, 94);  canvas.print("http://192.168.4.1");
+  canvas.setTextColor(YELLOW); canvas.setCursor(2, 116); canvas.printf("Blops: %d", bubbleCount);
+  canvas.pushSprite(0, 0);
+}
+
+void drawStatusScreen(uint32_t now) {
+  bool wifi = WiFi.status() == WL_CONNECTED;
+  canvas.fillScreen(BLACK);
+  canvas.setTextSize(1);
+
+  canvas.setTextColor(CYAN);
+  canvas.setCursor(2, 2);
+  canvas.print(config.hostname);
+
+  canvas.setCursor(2, 13);
+  if (wifi) {
+    canvas.setTextColor(GREEN);
+    canvas.printf("WiFi %ddBm", WiFi.RSSI());
+  } else {
+    canvas.setTextColor(RED);
+    canvas.print(apActive ? "WiFi: setup AP" : "WiFi: down");
+  }
+  canvas.setCursor(2, 24);
+  canvas.setTextColor(mqttUp ? GREEN : RED);
+  canvas.print(mqttUp ? "MQTT ok" : "MQTT --");
+  canvas.setCursor(2, 35);
+  canvas.setTextColor(WHITE);
+  canvas.print(wifi ? WiFi.localIP().toString() : (apActive ? WiFi.softAPIP().toString() : String("-")));
+
+  canvas.setTextColor(YELLOW);
+  canvas.setCursor(2, 50);
+  canvas.print("Blops");
+  canvas.setTextSize(3);
+  canvas.setCursor(2, 60);
+  canvas.printf("%d", bubbleCount);
+  canvas.setTextSize(1);
+  canvas.setTextColor(WHITE);
+  canvas.setCursor(70, 60);
+  canvas.printf("last %d", lastIntervalBubbles);
+  canvas.setCursor(70, 72);
+  canvas.printf("peak %.1f", det.lastPeak);
+
+  canvas.setCursor(2, 88);
+  if (isnan(tempC[0])) canvas.print("T1 --.-");
+  else canvas.printf("T1 %.1f", tempC[0]);
+  canvas.setCursor(66, 88);
+  if (isnan(tempC[1])) canvas.print("T2 --.-");
+  else canvas.printf("T2 %.1f", tempC[1]);
+
+  canvas.setCursor(2, 100);
+  canvas.setTextColor(DARKGREY);
+  if (!det.biasReady) canvas.print("calibrating...");
+  else canvas.printf("noise %.2f trig %.1f", det.noise, det.trigger);
+
+  canvas.setCursor(2, 116);
+  if (M5.BtnA.isPressed() && btnPressStart && now - btnPressStart >= 1000) {
+    canvas.setTextColor(RED);
+    canvas.printf("Hold %lus to reset", (unsigned long)((5000 - (now - btnPressStart)) / 1000 + 1));
+  } else {
+    canvas.setTextColor(WHITE);
+    uint32_t elapsed = now - lastSendTime;
+    canvas.printf("send in %lus", (unsigned long)((elapsed < SEND_INTERVAL_MS ? SEND_INTERVAL_MS - elapsed : 0) / 1000));
+  }
+  canvas.pushSprite(0, 0);
+}
+
+// =============================================================================
+// Web server (all handlers run on the async task: no blocking, no OneWire/MQTT/NVS)
+// =============================================================================
+static void serveFile(AsyncWebServerRequest* r, const char* path, const char* type) {
+  if (!SPIFFS.exists(path)) {
+    r->send(404, "text/plain", "Web UI files missing on SPIFFS - run: pio run -t uploadfs");
+    return;
+  }
+  r->send(SPIFFS, path, type);
+}
+
+static void sendJson(AsyncWebServerRequest* r, JsonDocument& doc) {
+  String out;
+  serializeJson(doc, out);
+  r->send(200, "application/json", out);
+}
+
 void setupWebServer() {
-  // Main dashboard
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/dashboard.html", "text/html");
+  // Pages
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest* r) {
+    serveFile(r, configured ? "/dashboard.html" : "/config.html", "text/html");
   });
-  
-  // Configuration page
-  server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/settings.html", "text/html");
-  });
-  
-  // Get current configuration as JSON
-  server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String jsonResponse;
-    DynamicJsonDocument doc(1024);
-    
+  server.on("/config", HTTP_GET, [](AsyncWebServerRequest* r) { serveFile(r, "/settings.html", "text/html"); });
+  server.on("/setup",  HTTP_GET, [](AsyncWebServerRequest* r) { serveFile(r, "/config.html", "text/html"); });
+  server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest* r) { serveFile(r, "/style.css", "text/css"); });
+  server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest* r) { serveFile(r, "/script.js", "application/javascript"); });
+  server.on("/chart.js",  HTTP_GET, [](AsyncWebServerRequest* r) { serveFile(r, "/chart.js", "application/javascript"); });
+
+  // Configuration (no secrets)
+  server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest* r) {
+    JsonDocument doc;
+    doc["device_id"] = deviceId;
+    doc["fw"] = FW_VERSION;
     doc["wifi_ssid"] = config.wifi_ssid;
-    // Don't send the WiFi password for security
     doc["mqtt_server"] = config.mqtt_server;
     doc["mqtt_port"] = config.mqtt_port;
     doc["mqtt_user"] = config.mqtt_user;
-    // Don't send the MQTT password for security
     doc["mqtt_client_id"] = config.mqtt_client_id;
     doc["hostname"] = config.hostname;
     doc["gyro_threshold"] = config.gyro_threshold;
     doc["min_activity_threshold"] = config.min_activity_threshold;
     doc["debounce_time"] = config.debounce_time;
-    
-    serializeJson(doc, jsonResponse);
-    request->send(200, "application/json", jsonResponse);
+    doc["legacy_topics"] = config.legacy_topics;
+    doc["ota_protected"] = strlen(TIPSY_OTA_PASS) > 0;
+    doc["logo"] = logoLoaded;
+    doc["state_topic"] = topicState;
+    doc["settings_topic"] = topicSettings;
+    sendJson(r, doc);
   });
-  
-  // Get current status as JSON
-  server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String jsonResponse;
-    DynamicJsonDocument doc(1024);
-    
-    doc["wifi_connected"] = (WiFi.status() == WL_CONNECTED);
-    doc["mqtt_connected"] = client.connected();
-    doc["ip_address"] = WiFi.localIP().toString();
+
+  // Live status (polled by the dashboard)
+  server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* r) {
+    bool wifi = WiFi.status() == WL_CONNECTED;
+    uint32_t elapsed = millis() - lastSendTime;
+    JsonDocument doc;
+    doc["fw"] = FW_VERSION;
+    doc["device_id"] = deviceId;
     doc["hostname"] = config.hostname;
-    doc["bubble_count"] = bubbleCount;
+    doc["wifi_connected"] = wifi;
+    doc["ap_active"] = apActive;
+    doc["ip_address"] = wifi ? WiFi.localIP().toString() : (apActive ? WiFi.softAPIP().toString() : String(""));
     doc["rssi"] = WiFi.RSSI();
-    
-    // Get temperatures
-    sensors.requestTemperatures();
-    float temp1 = sensors.getTempCByIndex(0);
-    float temp2 = sensors.getTempCByIndex(1);
-    
-    doc["temp1"] = (temp1 != DEVICE_DISCONNECTED_C) ? temp1 : 0;
-    doc["temp2"] = (temp2 != DEVICE_DISCONNECTED_C) ? temp2 : 0;
-    doc["temp1_connected"] = (temp1 != DEVICE_DISCONNECTED_C);
-    doc["temp2_connected"] = (temp2 != DEVICE_DISCONNECTED_C);
-    
-    serializeJson(doc, jsonResponse);
-    request->send(200, "application/json", jsonResponse);
+    doc["mqtt_connected"] = mqttUp;
+    doc["mqtt_server"] = config.mqtt_server;
+    doc["bubble_count"] = bubbleCount;
+    doc["bubbles_per_min"] = rollingCount;        // rolling 60 s window
+    doc["handling"] = det.handling;
+    doc["bubbles_last_interval"] = lastIntervalBubbles;
+    doc["total_bubbles"] = totalBubbles;
+    doc["seconds_to_send"] = (elapsed < SEND_INTERVAL_MS ? SEND_INTERVAL_MS - elapsed : 0) / 1000;
+    doc["temp_sensors"] = tempSensorCount;
+    doc["temp1_connected"] = !isnan(tempC[0]);
+    doc["temp2_connected"] = !isnan(tempC[1]);
+    if (!isnan(tempC[0])) doc["temp1"] = tempC[0];
+    if (!isnan(tempC[1])) doc["temp2"] = tempC[1];
+    doc["noise_floor"] = det.noise;
+    doc["last_peak"] = det.lastPeak;
+    doc["last_rise"] = det.lastRise;
+    doc["trigger_effective"] = det.trigger;
+    doc["release_effective"] = det.release;
+    doc["sample_rate"] = det.sampleRate;
+    doc["logo"] = logoLoaded;
+    {
+      JsonObject lp = doc["loop_max_ms"].to<JsonObject>();
+      static const char* names[] = {"imu", "net", "mqtt", "temp", "btn", "screen", "other"};
+      lp["iteration"] = lstat.maxIterUs / 1000.0f;
+      lp["iterations_per_s"] = lstat.iterations;
+      lp["imu_no_data_per_s"] = lstat.imuNone;
+      lp["busy_ms_per_s"] = lstat.sumIterUs / 1000.0f;
+      for (int i = 0; i < LoopStats::N; i++) lp[names[i]] = lstat.maxUs[i] / 1000.0f;
+    }
+    {
+      static const char* names[] = {"idle", "quiet", "active", "done", "failed", "wait_still"};
+      JsonObject a = doc["autocal"].to<JsonObject>();
+      a["phase"] = names[acal.phase];
+      uint32_t now = millis(), left = 0;
+      if (acal.phase == AutoCal::QUIET)  left = (ACAL_QUIET_MS  - (now - acal.phaseStart) + 999) / 1000;
+      if (acal.phase == AutoCal::ACTIVE) left = (ACAL_ACTIVE_MS - (now - acal.phaseStart) + 999) / 1000;
+      a["seconds_left"] = left;
+      a["blops"] = acal.nPeaks;
+      a["quiet_max"] = acal.quietMax;
+      a["message"] = acal.message;
+      if (acal.phase == AutoCal::DONE) { a["trigger"] = acal.trigger; a["release"] = acal.release; }
+    }
+    doc["calibrating"] = !det.biasReady;
+    doc["still"] = det.still;
+    doc["vibration_level"] = det.vib;
+    doc["in_event"] = det.inEvent;
+    doc["uptime"] = millis() / 1000;
+    doc["free_heap"] = ESP.getFreeHeap();
+    char ts[32];
+    if (isoTimestamp(ts, sizeof(ts))) doc["time"] = ts;
+    sendJson(r, doc);
   });
-  
-  // Get history data for charts
-  server.on("/api/history", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String jsonResponse;
-    DynamicJsonDocument doc(4096);
-    
-    JsonArray bubbles = doc.createNestedArray("bubbles");
-    JsonArray temps1 = doc.createNestedArray("temp1");
-    JsonArray temps2 = doc.createNestedArray("temp2");
-    
-    // Add data points in chronological order
+
+  // Last hour, oldest first; temperatures are null while no probe is connected
+  server.on("/api/history", HTTP_GET, [](AsyncWebServerRequest* r) {
+    JsonDocument doc;
+    JsonArray b = doc["bubbles"].to<JsonArray>();
+    JsonArray t1 = doc["temp1"].to<JsonArray>();
+    JsonArray t2 = doc["temp2"].to<JsonArray>();
     for (int i = 0; i < MAX_HISTORY; i++) {
-      int index = (historyIndex + i) % MAX_HISTORY;
-      bubbles.add(bubbleHistory[index]);
-      temps1.add(tempHistory1[index]);
-      temps2.add(tempHistory2[index]);
+      int idx = (historyIndex + i) % MAX_HISTORY;
+      b.add(bubbleHistory[idx]);
+      t1.add(tempHistory1[idx]);   // NaN serialises as null
+      t2.add(tempHistory2[idx]);
     }
-    
-    serializeJson(doc, jsonResponse);
-    request->send(200, "application/json", jsonResponse);
+    sendJson(r, doc);
   });
-  
-  // Update sensitivity settings
-  server.on("/api/update-settings", HTTP_POST, [](AsyncWebServerRequest *request) {
-    // Not handling form data directly - this just acknowledges receipt
-    request->send(200, "text/plain", "Settings received");
-  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    // Parse the JSON body
-    DynamicJsonDocument doc(1024);
-    DeserializationError error = deserializeJson(doc, data, len);
-    
-    if (!error) {
-      // Update configuration
-      if (doc.containsKey("gyro_threshold")) {
-        float newThreshold = doc["gyro_threshold"];
-        if (newThreshold > 0.05 && newThreshold <= 5.0) {
-          config.gyro_threshold = newThreshold;
-          
-          // Also publish to MQTT if connected
-          if (client.connected()) {
-            char payload[10];
-            snprintf(payload, 10, "%.2f", newThreshold);
-            client.publish(topic_sensitivity, payload);
-          }
-        }
+
+  // Sensor settings: JSON body {gyro_threshold, min_activity_threshold, debounce_time, legacy_topics}
+  server.on("/api/update-settings", HTTP_POST,
+    [](AsyncWebServerRequest* r) { r->send(200, "application/json", "{\"ok\":true}"); },
+    NULL,
+    [](AsyncWebServerRequest* r, uint8_t* data, size_t len, size_t index, size_t total) {
+      static String body;
+      if (index == 0) body = "";
+      body.concat((const char*)data, len);
+      if (index + len < total) return;
+      JsonDocument doc;
+      if (deserializeJson(doc, body)) return;
+      for (JsonPairConst kv : doc.as<JsonObjectConst>()) applySettingJson(kv.key().c_str(), kv.value());
+    });
+
+  // Network / identity (form-encoded, from setup page and settings page). Blank passwords keep the current one.
+  server.on("/save-config", HTTP_POST, [](AsyncWebServerRequest* r) {
+    pendingNet = config;
+    auto take = [&](const char* name, char* dst, size_t n, bool keepIfBlank) {
+      if (!r->hasParam(name, true)) return;
+      const String& v = r->getParam(name, true)->value();
+      if (v.length() || !keepIfBlank) strlcpy(dst, v.c_str(), n);
+    };
+    take("wifi_ssid",      pendingNet.wifi_ssid,      sizeof(pendingNet.wifi_ssid),      false);
+    take("wifi_password",  pendingNet.wifi_password,  sizeof(pendingNet.wifi_password),  true);
+    take("mqtt_server",    pendingNet.mqtt_server,    sizeof(pendingNet.mqtt_server),    false);
+    take("mqtt_user",      pendingNet.mqtt_user,      sizeof(pendingNet.mqtt_user),      false);
+    take("mqtt_password",  pendingNet.mqtt_password,  sizeof(pendingNet.mqtt_password),  true);
+    take("mqtt_client_id", pendingNet.mqtt_client_id, sizeof(pendingNet.mqtt_client_id), false);
+    take("hostname",       pendingNet.hostname,       sizeof(pendingNet.hostname),       false);
+    if (r->hasParam("mqtt_port", true)) {
+      int p = r->getParam("mqtt_port", true)->value().toInt();
+      if (p > 0 && p < 65536) pendingNet.mqtt_port = p;
+    }
+    pendingNetApply = true;
+    r->send(200, "text/plain", "Configuration saved. The device restarts and joins your WiFi now.");
+  });
+
+  // Push an update over HTTP - works from anywhere that can reach the device, including
+  // NAT'd dev machines where espota's reverse connection never arrives:
+  //   curl -u admin:<ota password> -F "image=@firmware.bin" http://<host>/update
+  //   curl -u admin:<ota password> -F "image=@spiffs.bin"   http://<host>/update     (web files)
+  // A file whose name contains "spiffs" (or ?type=spiffs) goes to the filesystem partition.
+  server.on("/update", HTTP_POST,
+    [](AsyncWebServerRequest* r) {
+      if (strlen(TIPSY_OTA_PASS) && !r->authenticate("admin", TIPSY_OTA_PASS)) return r->requestAuthentication();
+      bool ok = otaInProgress && !Update.hasError();
+      r->send(ok ? 200 : 500, "text/plain", ok ? "Update OK - rebooting\n" : "Update failed - see serial log\n");
+      if (ok) {
+        pendingRestartAt = millis() + 800;
+      } else {
+        otaInProgress = false;
+        SPIFFS.begin(true);
       }
-      
-      if (doc.containsKey("min_activity_threshold")) {
-        float newThreshold = doc["min_activity_threshold"];
-        if (newThreshold >= 0.05 && newThreshold <= 1.0) {
-          config.min_activity_threshold = newThreshold;
-          
-          // Also publish to MQTT if connected
-          if (client.connected()) {
-            char payload[10];
-            snprintf(payload, 10, "%.2f", newThreshold);
-            client.publish(topic_min_threshold, payload);
-          }
-        }
+    },
+    [](AsyncWebServerRequest* r, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
+      if (strlen(TIPSY_OTA_PASS) && !r->authenticate("admin", TIPSY_OTA_PASS)) return;
+      if (index == 0) {
+        bool fs = filename.indexOf("spiffs") >= 0 || (r->hasParam("type") && r->getParam("type")->value() == "spiffs");
+        otaInProgress = true;
+        Serial.printf("HTTP update: %s -> %s\n", filename.c_str(), fs ? "spiffs" : "firmware");
+        displayStatus(fs ? "Update: web files" : "Update: firmware", CYAN);
+        if (fs) SPIFFS.end();
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN, fs ? U_SPIFFS : U_FLASH)) Update.printError(Serial);
       }
-      
-      if (doc.containsKey("debounce_time")) {
-        int newTime = doc["debounce_time"];
-        if (newTime >= 200 && newTime <= 5000) {
-          config.debounce_time = newTime;
-          
-          // Also publish to MQTT if connected
-          if (client.connected()) {
-            char payload[10];
-            snprintf(payload, 10, "%d", newTime);
-            client.publish(topic_debounce_time, payload);
-          }
-        }
+      if (!Update.hasError() && Update.write(data, len) != len) Update.printError(Serial);
+      if (r->contentLength()) M5.Display.fillRect(0, 120, (index + len) * M5.Display.width() / r->contentLength(), 8, GREEN);
+      if (final) {
+        if (Update.end(true)) Serial.printf("HTTP update done: %u bytes\n", (unsigned)(index + len));
+        else Update.printError(Serial);
       }
-      
-      // Save configuration
-      saveConfiguration();
-    }
+    });
+
+  // Display logo: GET serves the current file, POST (multipart "logo") replaces it, logo-delete removes it.
+  server.on("/api/logo-delete", HTTP_POST, [](AsyncWebServerRequest* r) {
+    SPIFFS.remove("/logo.png");
+    SPIFFS.remove("/logo.jpg");
+    logoReload = true;
+    r->send(200, "application/json", "{\"ok\":true}");
   });
-  
-  // Serve CSS and JS files
-  server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/style.css", "text/css");
+  server.on("/logo", HTTP_GET, [](AsyncWebServerRequest* r) {
+    const char* p = logoPath();
+    if (!p) return r->send(404, "text/plain", "No logo");
+    r->send(SPIFFS, p, strstr(p, ".png") ? "image/png" : "image/jpeg");
   });
-  
-  server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/script.js", "application/javascript");
+  server.on("/api/logo", HTTP_POST,
+    [](AsyncWebServerRequest* r) {
+      if (logoUploadError[0]) r->send(400, "text/plain", logoUploadError);
+      else r->send(200, "application/json", "{\"ok\":true}");
+    },
+    [](AsyncWebServerRequest* r, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
+      static File f;
+      static bool isPng = false;
+      if (index == 0) {
+        logoUploadError[0] = 0;
+        isPng = len >= 8 && !memcmp(data, "\x89PNG\r\n\x1a\n", 8);
+        bool isJpg = len >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF;
+        if (!isPng && !isJpg) { strlcpy(logoUploadError, "Not a PNG or JPEG file", sizeof(logoUploadError)); return; }
+        f = SPIFFS.open("/logo.tmp", "w");
+        if (!f) { strlcpy(logoUploadError, "Cannot write to SPIFFS", sizeof(logoUploadError)); return; }
+      }
+      if (logoUploadError[0]) return;
+      if (index + len > (size_t)LOGO_MAX_BYTES || f.write(data, len) != len) {
+        strlcpy(logoUploadError, index + len > (size_t)LOGO_MAX_BYTES ? "File too large (max 120 KB)" : "Write failed", sizeof(logoUploadError));
+        f.close();
+        SPIFFS.remove("/logo.tmp");
+        return;
+      }
+      if (final) {
+        f.close();
+        SPIFFS.remove("/logo.png");
+        SPIFFS.remove("/logo.jpg");
+        SPIFFS.rename("/logo.tmp", isPng ? "/logo.png" : "/logo.jpg");
+        logoReload = true;   // decoded on the main task
+        Serial.printf("Logo uploaded: %u bytes (%s)\n", (unsigned)(index + len), isPng ? "png" : "jpg");
+      }
+    });
+  server.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* r) {
+    pendingRestartAt = millis() + 500;
+    r->send(200, "application/json", "{\"ok\":true}");
   });
-  
-  server.on("/chart.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/chart.js", "application/javascript");
+  // Raw trace of the last ~4 s: t = ms since the oldest sample, m = magnitude (deg/s), e = flags
+  server.on("/api/trace", HTTP_GET, [](AsyncWebServerRequest* r) {
+    JsonDocument doc;
+    JsonArray t = doc["t"].to<JsonArray>();
+    JsonArray m = doc["m"].to<JsonArray>();
+    JsonArray e = doc["e"].to<JsonArray>();
+    uint16_t start = traceIdx;
+    uint32_t t0 = 0;
+    for (uint16_t i = 0; i < TRACE_LEN; i++) {
+      uint16_t idx = (start + i) % TRACE_LEN;
+      if (traceMs[idx] == 0) continue;
+      if (!t0) t0 = traceMs[idx];
+      t.add(traceMs[idx] - t0);
+      m.add(roundf(traceMag[idx] * 100) / 100);
+      e.add(traceFlags[idx]);
+    }
+    doc["t0"] = t0;
+    doc["now"] = millis();
+    doc["trigger"] = det.trigger;
+    doc["release"] = det.release;
+    doc["sample_rate"] = det.sampleRate;
+    sendJson(r, doc);
   });
-  
-  // Start server
-  server.begin();
-}
+  server.on("/api/autocal", HTTP_POST, [](AsyncWebServerRequest* r) {
+    acalStartPending = true;   // started on the main task
+    r->send(200, "application/json", "{\"ok\":true}");
+  });
+  server.on("/api/calibrate", HTTP_POST, [](AsyncWebServerRequest* r) {
+    detRelearn(millis());
+    r->send(200, "application/json", "{\"ok\":true}");
+  });
 
-// Connect to WiFi
-void connectToWifi() {
-  if (strlen(config.wifi_ssid) == 0) {
-    Serial.println("No WiFi credentials configured");
-    displayStatus("No WiFi Config", RED);
-    return;
-  }
-  
-  displayStatus("Connecting WiFi...", YELLOW);
-  Serial.printf("Connecting to %s ", config.wifi_ssid);
-  
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(config.wifi_ssid, config.wifi_password);
-  
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    M5.Display.fillRect(0, 40, attempts * 6, 5, BLUE);
-    Serial.print(".");
-    attempts++;
-  }
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi connected!");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    displayStatus("WiFi Connected", GREEN);
-  } else {
-    Serial.println("\nWiFi connection failed!");
-    displayStatus("WiFi Failed", RED);
-  }
-  delay(1000);
-}
-
-// Setup MQTT connection
-void setupMQTT() {
-  if (strlen(config.mqtt_server) == 0) {
-    Serial.println("No MQTT server configured");
-    return;
-  }
-  
-  client.setServer(config.mqtt_server, config.mqtt_port);
-  client.setCallback(callback);
-  reconnectMQTT();
-}
-
-// Reconnect to MQTT
-void reconnectMQTT() {
-  if (strlen(config.mqtt_server) == 0) {
-    return;
-  }
-  
-  int attempts = 0;
-  
-  while (!client.connected() && attempts < 3) {
-    Serial.print("Connecting to MQTT broker...");
-    displayStatus("MQTT Connecting", YELLOW);
-    
-    if (client.connect(config.mqtt_client_id, config.mqtt_user, config.mqtt_password)) {
-      Serial.println("connected!");
-      
-      // Subscribe to topics for parameter adjustments
-      client.subscribe(topic_sensitivity);
-      client.subscribe(topic_min_threshold);
-      client.subscribe(topic_debounce_time);
-      
-      displayStatus("MQTT Connected", GREEN);
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" retry in 2s");
-      delay(2000);
-    }
-    attempts++;
-  }
-  
-  if (!client.connected()) {
-    displayStatus("MQTT Failed", RED);
-  }
-}
-
-// MQTT callback
-void callback(char* topic, byte* payload, unsigned int length) {
-  // Create null-terminated string from payload
-  char msg[length + 1];
-  strncpy(msg, (char*)payload, length);
-  msg[length] = '\0';
-  
-  Serial.printf("Message arrived [%s]: %s\n", topic, msg);
-  
-  // If message is on sensitivity topic, update threshold
-  if (strcmp(topic, topic_sensitivity) == 0) {
-    float newThreshold = atof(msg);
-    
-    if (newThreshold > 0.05 && newThreshold <= 5.0) {
-      config.gyro_threshold = newThreshold;
-      Serial.printf("New sensitivity: %.2f°/s\n", config.gyro_threshold);
-      saveConfiguration();
-    }
-  }
-  // If message is for minimum threshold adjustment
-  else if (strcmp(topic, topic_min_threshold) == 0) {
-    float newMinThreshold = atof(msg);
-    
-    if (newMinThreshold >= 0.05 && newMinThreshold <= 1.0) {
-      config.min_activity_threshold = newMinThreshold;
-      Serial.printf("New minimum threshold: %.2f\n", config.min_activity_threshold);
-      saveConfiguration();
-    }
-  }
-  // If message is for debounce time adjustment
-  else if (strcmp(topic, topic_debounce_time) == 0) {
-    int newDebounceTime = atoi(msg);
-    
-    if (newDebounceTime >= 200 && newDebounceTime <= 5000) {
-      config.debounce_time = newDebounceTime;
-      Serial.printf("New debounce time: %dms\n", config.debounce_time);
-      saveConfiguration();
-    }
-  }
-}
-
-// Setup mDNS for easy access
-void setupMDNS() {
-  if (MDNS.begin(config.hostname)) {
-    Serial.printf("mDNS responder started. Device can be reached at http://%s.local\n", config.hostname);
-  } else {
-    Serial.println("Error setting up mDNS responder!");
-  }
-}
-
-// Save configuration to file
-bool saveConfiguration() {
-  File file = SPIFFS.open("/config.json", "w");
-  if (!file) {
-    Serial.println("Failed to open config file for writing");
-    return false;
-  }
-  
-  DynamicJsonDocument doc(1024);
-  
-  doc["wifi_ssid"] = config.wifi_ssid;
-  doc["wifi_password"] = config.wifi_password;
-  doc["mqtt_server"] = config.mqtt_server;
-  doc["mqtt_port"] = config.mqtt_port;
-  doc["mqtt_user"] = config.mqtt_user;
-  doc["mqtt_password"] = config.mqtt_password;
-  doc["mqtt_client_id"] = config.mqtt_client_id;
-  doc["hostname"] = config.hostname;
-  doc["gyro_threshold"] = config.gyro_threshold;
-  doc["min_activity_threshold"] = config.min_activity_threshold;
-  doc["debounce_time"] = config.debounce_time;
-  
-  if (serializeJson(doc, file) == 0) {
-    Serial.println("Failed to write config to file");
-    return false;
-  }
-  
-  file.close();
-  return true;
-}
-
-// Load configuration from file
-bool loadConfiguration() {
-  if (!SPIFFS.exists("/config.json")) {
-    Serial.println("Config file not found");
-    return false;
-  }
-  
-  File file = SPIFFS.open("/config.json", "r");
-  if (!file) {
-    Serial.println("Failed to open config file for reading");
-    return false;
-  }
-  
-  DynamicJsonDocument doc(1024);
-  DeserializationError error = deserializeJson(doc, file);
-  file.close();
-  
-  if (error) {
-    Serial.println("Failed to parse config file");
-    return false;
-  }
-  
-  // Copy values from JSON to config struct
-  strlcpy(config.wifi_ssid, doc["wifi_ssid"] | "", sizeof(config.wifi_ssid));
-  strlcpy(config.wifi_password, doc["wifi_password"] | "", sizeof(config.wifi_password));
-  strlcpy(config.mqtt_server, doc["mqtt_server"] | "", sizeof(config.mqtt_server));
-  config.mqtt_port = doc["mqtt_port"] | 1883;
-  strlcpy(config.mqtt_user, doc["mqtt_user"] | "", sizeof(config.mqtt_user));
-  strlcpy(config.mqtt_password, doc["mqtt_password"] | "", sizeof(config.mqtt_password));
-  strlcpy(config.mqtt_client_id, doc["mqtt_client_id"] | "M5AtomS3Vibration", sizeof(config.mqtt_client_id));
-  strlcpy(config.hostname, doc["hostname"] | "tresor.lab", sizeof(config.hostname));
-  config.gyro_threshold = doc["gyro_threshold"] | 0.5;
-  config.min_activity_threshold = doc["min_activity_threshold"] | 0.2;
-  config.debounce_time = doc["debounce_time"] | 1000;
-  
-  return true;
-}
-
-// Send data via MQTT
-void sendMQTT() {
-  if (!client.connected()) {
-    return;
-  }
-  
-  char payload[50];
-  
-  // Send bubble count data
-  snprintf(payload, 50, "{\"blops\": %d}", bubbleCount);
-  client.publish(topic_bubbles, payload);
-  Serial.printf("MQTT sent: %s\n", payload);
-  
-  // Get temperature readings from DS18B20 sensors
-  sensors.requestTemperatures();
-  float temp1 = sensors.getTempCByIndex(0);
-  float temp2 = sensors.getTempCByIndex(1);
-  
-  // Send temperature 1 data if sensor is connected
-  if (temp1 != DEVICE_DISCONNECTED_C) {
-    snprintf(payload, 50, "{\"temperature\": %.2f}", temp1);
-    client.publish(topic_temp1, payload);
-    Serial.printf("Temp1 sent: %.2f°C\n", temp1);
-  }
-  
-  // Send temperature 2 data if sensor is connected
-  if (temp2 != DEVICE_DISCONNECTED_C) {
-    snprintf(payload, 50, "{\"temperature\": %.2f}", temp2);
-    client.publish(topic_temp2, payload);
-    Serial.printf("Temp2 sent: %.2f°C\n", temp2);
-  }
-}
-
-// Update history arrays for charts
-void updateHistory() {
-  // Get temperature readings
-  sensors.requestTemperatures();
-  float temp1 = sensors.getTempCByIndex(0);
-  float temp2 = sensors.getTempCByIndex(1);
-  
-  // Store in history arrays
-  bubbleHistory[historyIndex] = bubbleCount;
-  tempHistory1[historyIndex] = (temp1 != DEVICE_DISCONNECTED_C) ? temp1 : 0;
-  tempHistory2[historyIndex] = (temp2 != DEVICE_DISCONNECTED_C) ? temp2 : 0;
-  
-  // Increment index
-  historyIndex = (historyIndex + 1) % MAX_HISTORY;
-}
-
-// Display status message
-void displayStatus(const char* message, uint16_t color) {
-  M5.Display.clear();
-  M5.Display.setTextSize(1);
-  M5.Display.setTextColor(color);
-  M5.Display.setCursor(10, M5.Display.height() / 2 - 10);
-  M5.Display.println(message);
-}
-
-// Display connection status on screen
-void displayConnectionStatus() {
-  M5.Display.clear();
-  M5.Display.setTextSize(1);
-  
-  // Title
-  M5.Display.setTextColor(WHITE);
-  M5.Display.setCursor(5, 5);
-  M5.Display.println("Laboratoire Tresor");
-  
-  // WiFi status
-  M5.Display.setCursor(5, 20);
-  if (WiFi.status() == WL_CONNECTED) {
-    M5.Display.setTextColor(GREEN);
-    M5.Display.print("WiFi: OK");
-    // Display WiFi signal strength
-    M5.Display.setCursor(70, 20);
-    M5.Display.printf("(%ddBm)", WiFi.RSSI());
-  } else {
-    M5.Display.setTextColor(RED);
-    M5.Display.print("WiFi: Not Connected");
-  }
-  
-  // MQTT status
-  M5.Display.setCursor(5, 35);
-  if (client.connected()) {
-    M5.Display.setTextColor(GREEN);
-    M5.Display.print("MQTT: Connected");
-  } else {
-    M5.Display.setTextColor(RED);
-    M5.Display.print("MQTT: Disconnected");
-  }
-  
-  // Host name
-  M5.Display.setCursor(5, 50);
-  M5.Display.setTextColor(CYAN);
-  M5.Display.printf("Host: %s.local", config.hostname);
-  
-  // Bubble count
-  M5.Display.setCursor(5, 65);
-  M5.Display.setTextColor(YELLOW);
-  M5.Display.printf("Bubbles: %d", bubbleCount);
-  
-  // Time until next send
-  unsigned long timeRemaining = (sendInterval - (millis() - lastSendTime)) / 1000;
-  M5.Display.setCursor(5, 80);
-  M5.Display.setTextColor(WHITE);
-  M5.Display.printf("Next send: %lus", timeRemaining);
-}
-
-// Bubble animation for visualization
-void showBubbleAnimation() {
-  int centerX = M5.Display.width() / 2;
-  int centerY = M5.Display.height() / 2;
-  
-  uint16_t colors[] = {RED, ORANGE, YELLOW, GREEN, CYAN, BLUE, MAGENTA, WHITE};
-  
-  for (int i = 5; i <= 30; i += 5) {
-    uint16_t color = colors[random(0, 8)];
-    M5.Display.fillCircle(centerX, centerY, i, color);
-    delay(20);
-  }
-  
-  delay(50);
-  M5.Display.clear();
-  displayConnectionStatus();
+  // Captive portal: while the setup AP is up, unknown URLs (incl. OS connectivity checks) land on the setup page
+  server.onNotFound([](AsyncWebServerRequest* r) {
+    if (apActive) r->redirect("http://" + WiFi.softAPIP().toString() + "/");
+    else r->send(404, "text/plain", "Not found");
+  });
 }

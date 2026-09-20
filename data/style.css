@@ -262,3 +262,14 @@ canvas {
         height: 250px !important;
     }
 }
+/* 2.0 additions */
+.status-value.success { color: var(--success-color); }
+.status-value.error   { color: var(--danger-color); }
+.status-value.big     { font-size: 1.6em; font-weight: bold; }
+.status-grid.tuning   { max-width: 600px; margin: 0 auto 1em; }
+.btn-secondary        { background-color: #8a8a8a; color: white; margin-left: 1em; }
+.btn-secondary:hover  { background-color: #707070; }
+.checkbox-group input[type="checkbox"] { vertical-align: middle; margin-right: 0.5em; }
+.checkbox-group label { display: inline; font-weight: normal; }
+.hint                 { color: #666; font-size: 0.9em; margin: 0.4em 0 0.8em; }
+code                  { background: #eee; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.95em; }

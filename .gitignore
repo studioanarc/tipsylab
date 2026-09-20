@@ -3,3 +3,9 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# local credentials (see secrets.ini.example)
+secrets.ini
+
+# flash dumps of previous firmware (binary, per device)
+backup/
