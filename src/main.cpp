@@ -32,7 +32,7 @@
 #include <time.h>
 #include <math.h>
 
-#define FW_VERSION "2.0.6"
+#define FW_VERSION "2.0.7"
 
 // ===== Compile-time defaults (set them in secrets.ini, see secrets.ini.example) =====
 #ifndef TIPSY_WIFI_SSID
@@ -1300,7 +1300,18 @@ void publishState() {
     mqtt.publish(i ? topicTemp2 : topicTemp1, buf);
   }
 
-  if (config.legacy_topics) {   // 1.x format, keeps existing HA sensors/automations alive
+  if (config.legacy_topics) {   // 1.x formats, keep existing HA sensors/automations alive
+    // The deployed 1.x firmware published "<mqtt client id>/data" every minute with the total since
+    // boot in "bubbles" and the last minute in "bubbles_last_60s" (temperature/humidity from a DHT22).
+    char topic[80];
+    snprintf(topic, sizeof(topic), "%s/data", config.mqtt_client_id);
+    snprintf(buf, sizeof(buf),
+             "{\"bubbles\":%lu,\"bubbles_last_60s\":%d,\"interval_ms\":%lu,\"temperature\":%.1f,\"humidity\":0,"
+             "\"sensitivity\":%.2f,\"debounce\":%d}",
+             (unsigned long)totalBubbles, bubbleCount, (unsigned long)SEND_INTERVAL_MS,
+             isnan(tempC[0]) ? 0.0f : tempC[0], det.trigger, config.debounce_time);
+    mqtt.publish(topic, buf);
+    // The 2025 git baseline used these instead
     snprintf(buf, sizeof(buf), "{\"blops\": %d}", bubbleCount);
     mqtt.publish(LEGACY_TOPIC_BUBBLES, buf);
     for (int i = 0; i < 2; i++) {

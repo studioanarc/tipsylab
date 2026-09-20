@@ -191,6 +191,14 @@ data/                 web UI, flashed to SPIFFS with `pio run -t uploadfs`
 
 ## Changelog
 
+### 2.0.7 (2026-09-20)
+
+- Legacy topics now include the format the deployed 1.x units really use:
+  `<mqtt client id>/data` with `bubbles` (total since boot), `bubbles_last_60s`, `interval_ms`,
+  `temperature`, `humidity`, `sensitivity`, `debounce`. Set the client ID to the old name (e.g.
+  `FermentationMonitor`) when replacing a 1.x unit and the existing Home Assistant sensors keep
+  working; the discovered entities are the better long-term option.
+
 ### 2.0.6 (2026-09-20)
 
 - **Baseline from still windows**: the gyro bias is learned from the first still ~500 ms after
