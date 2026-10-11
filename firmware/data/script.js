@@ -136,7 +136,7 @@
       const img = $('logo-preview'); if (!img) return;
       img.style.display = has ? 'block' : 'none';
       if (has) img.src = '/logo?' + Date.now();
-      setText('logo-status', has ? 'Logo stored on the device' : 'No logo - the status view is shown');
+      setText('logo-status', has ? 'Logo stored on the device' : 'No logo - a dot flashes for each blop');
     }
     $('logo-upload-btn').addEventListener('click', () => {
       const file = $('logo-file').files[0];
@@ -145,7 +145,7 @@
       fd.append('logo', file, file.name);
       fetch('/api/logo', { method: 'POST', body: fd })
         .then((r) => r.text().then((t) => { if (!r.ok) throw new Error(t || 'HTTP ' + r.status); }))
-        .then(() => { message('Logo uploaded - it appears on the screen within a second.', 'success'); setTimeout(() => showLogo(true), 1500); })
+        .then(() => { message('Logo uploaded - it flashes with the next blop.', 'success'); setTimeout(() => showLogo(true), 1500); })
         .catch((e) => message('Upload failed: ' + e.message, 'error'));
     });
     $('logo-delete-btn').addEventListener('click', () => {

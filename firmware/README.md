@@ -6,7 +6,8 @@ probes and publishes everything over MQTT. Home Assistant picks the device up au
 (MQTT discovery); the payloads are also understood by the
 [tipsyhomelab](https://github.com/studioanarc/tipsyhomelab) add-on.
 
-Firmware **2.0.0** – see [Changelog](#changelog).
+Firmware **2.1.0** – see [Changelog](#changelog). Part of [TIPSYLAB](../README.md): the Home Assistant
+integration sends the time until bottling (DUB) back to the display.
 
 ## Hardware
 
@@ -64,16 +65,26 @@ filesystem upload touches them.
   detection sliders. Shows the *noise floor* and *last bubble peak* so you can place the trigger
   between them.
 - **Settings** (`/config`) – WiFi, MQTT, hostname, legacy-topic switch, restart, and the
-  **display logo**: upload a PNG or JPEG (max 120 KB, scaled to fit 128×116 px) and the AtomS3
-  shows it instead of the status view, with a small bar underneath (blops this minute, WiFi and
-  MQTT dots). The file is stored as `/logo.png` or `/logo.jpg` on SPIFFS – the same names 1.x
-  used, so a logo uploaded there survives a firmware-only update (not `uploadfs`, which rewrites
-  the whole filesystem).
-- **Screen**: the main view is the logo if one is stored, otherwise the count (this minute) with
-  temperatures, two status dots (WiFi, MQTT) and the IP. A short button press shows the
-  diagnostics view (RSSI, noise floor, effective trigger, last peak, send countdown) for 20 s.
-  Hold 5 s = factory reset (clears NVS, restarts into the setup AP). The baseline is relearned via
-  `/api/calibrate` or the dashboard button.
+  **display logo**: upload a PNG or JPEG (max 120 KB, scaled to fit 128×128 px). It flashes for
+  `logo_flash_ms` (300 ms) with each blop, at most every `logo_gap_ms` (1.2 s) so the numbers stay
+  readable at peak fermentation. The Tipsy logo is ready in `assets/logo-atoms3-128.png`. The file
+  is stored as `/logo.png` or `/logo.jpg` on SPIFFS – the same names 1.x used, so a logo uploaded
+  there survives a firmware-only update (not `uploadfs`, which rewrites the whole filesystem).
+  Without a logo a paper-pink dot flashes instead.
+- **Screen** (2.1): three lines on Tipsy ultramarine, digits in JetBrains Mono Bold:
+
+  ```
+  12        BPM     blops in the last 60 s, counted on the device
+  1d 19h    DUB     time until bottling, from Home Assistant (DRY for still wine)
+  13,1°             wine temperature (probe 1, else probe 2)
+  ```
+
+  DUB is green above 3 days, amber until the bottling window opens, coral while it is open and
+  blinking coral once it has passed; `--` without a forecast or when Home Assistant has not
+  sent one for an hour. A small coral square in the top corner means WiFi or MQTT is down.
+  A short button press shows the diagnostics view (hostname, IP, RSSI, noise floor, effective
+  trigger, last peak, send countdown) for 20 s. Hold 5 s = factory reset (clears NVS, restarts
+  into the setup AP). The baseline is relearned via `/api/calibrate` or the dashboard button.
 
 ## MQTT
 
@@ -81,19 +92,26 @@ All topics use the device ID. `<id>` = `tipsy-a1b2c3`.
 
 | Topic | Direction | Payload |
 |---|---|---|
-| `sensors/bubble/<id>` | publish, every 60 s | `{"sensor_id","bubbles","cumulative":false,"interval":60,"rate","total","temperature","rssi","uptime","noise","peak","sample_rate","free_heap","fw","timestamp"}` |
+| `sensors/bubble/<id>` | publish, every 60 s | `{"sensor_id","bubbles","cumulative":false,"interval":60,"rate","total","total_all","rate_60s","boot_id","seq","suppressed","saturated","handling","temperature","rssi","uptime","noise","peak","trigger","sample_rate","free_heap","fw","timestamp"}` |
 | `sensors/temperature/<id>-1`, `…-2` | publish, every 60 s | `{"temperature": 21.31, "sensor_id": "<id>-1"}` (only while a probe is connected) |
-| `tipsy/<id>/settings` | publish, retained | `{"gyro_threshold","min_activity_threshold","debounce_time","legacy_topics"}` |
+| `tipsy/<id>/settings` | publish, retained | `{"gyro_threshold","min_activity_threshold","debounce_time","legacy_topics","logo_flash_ms","logo_gap_ms"}` |
+| `tipsy/<id>/display` | subscribe, retained | `{"dub_h": 43.2, "state": "soon", "mode": "petnat", "status": "approaching", "measure": false}` from the TIPSYLAB integration |
 | `tipsy/<id>/availability` | publish, retained, LWT | `online` / `offline` |
 | `tipsy/<id>/set/<key>` | subscribe | single value, e.g. `0.6` |
 | `tipsy/<id>/set` | subscribe | JSON with any of the setting keys |
-| `homeassistant/{sensor,number}/<id>/*/config` | publish, retained | HA discovery |
+| `homeassistant/{sensor,binary_sensor,number,button}/<id>/*/config` | publish, retained | HA discovery |
 
-`bubbles` is the count in the last interval (not cumulative) – the format the tipsyhomelab
-add-on's bubble sensor expects (`sensors/bubble/<id>`, key `bubbles`, ISO `timestamp` once NTP
-has synced).
+`bubbles` is the count in the last interval (not cumulative), `total` the count since boot and
+`total_all` the count across restarts (kept in NVS, saved every 10 min and before planned
+restarts). `boot_id` is random per boot and `seq` counts the messages of that boot: together they
+let a receiver fill gaps from `total` within one boot, drop duplicates, recognise a restart, and
+recover from `total_all` what was counted but never sent before a power cut.
+`suppressed` counts separate impulses that arrived inside the blop spacing during the interval;
+`saturated` is true when the airlock runs at the counting limit (rate ≥ 80 % of
+60000 / `debounce_time` per minute, or many suppressed impulses) – the true rate is then higher
+than counted. `handling` is true while the device is being moved and counting is paused.
 
-**Legacy topics** (1.x, on by default, switchable in Settings): `homeassistant/sensor/fermentation_bubbles`
+**Legacy topics** (1.x; off by default since 2.1 – a device updated from 2.0 keeps its stored setting; switchable in Settings): `homeassistant/sensor/fermentation_bubbles`
 `{"blops": N}`, `…/temperature_1|2` `{"temperature": x}`, and the device still listens on
 `…/fermentation_sensitivity`, `…/fermentation_min_threshold`, `…/fermentation_debounce_time`.
 Note that with several devices these shared topics mix their data – prefer the per-device ones.
@@ -102,8 +120,9 @@ Note that with several devices these shared topics mix their data – prefer the
 
 Nothing to configure: with the MQTT integration set up, a device *"tipsy-a1b2c3"* appears with
 sensors **Bubbles**, **Bubble rate**, **Bubbles total**, **Temperature 1/2**, diagnostics
-**WiFi signal**, **Gyro noise floor**, **Last bubble peak**, and three `number` sliders
-**Trigger threshold**, **Release threshold**, **Min. blop spacing** that write straight to the device.
+**WiFi signal**, **Gyro noise floor**, **Last bubble peak**, **Counter saturated**, **Handling**, and
+`number` sliders **Trigger threshold**, **Release threshold**, **Min. blop spacing**, **Logo per blop**
+and **Logo spacing** that write straight to the device.
 
 ## Detection
 
@@ -186,10 +205,26 @@ the last ~4 s of the raw magnitude with event markers for a closer look.
 platformio.ini        build + OTA envs (partition table = board default, 2 OTA slots)
 secrets.ini(.example) compile-time defaults and OTA password – never commit secrets.ini
 src/main.cpp          firmware
+include/tipsy_fonts.h display digits (JetBrains Mono Bold), generated by ../tools/make_atom_font.py
 data/                 web UI, flashed to SPIFFS with `pio run -t uploadfs`
 ```
 
 ## Changelog
+
+### 2.1.0 (2026-10-11)
+
+- New main view for TIPSYLAB: BPM, DUB and temperature on Tipsy ultramarine, digits in
+  JetBrains Mono Bold (the tipsy.pt font) as a small bitmap font. DUB arrives retained on
+  `tipsy/<id>/display` from the Home Assistant integration and is counted down locally; colour
+  by state (green, amber, coral, blinking coral), `--` when missing or older than an hour.
+- Each blop flashes the uploaded logo full screen (128×128) for 300 ms, at most every 1.2 s;
+  both adjustable (`logo_flash_ms`, `logo_gap_ms`). The coloured circle and the logo-as-main-view
+  are gone. Without a logo a paper-pink dot flashes.
+- State payload: `total_all` (count across restarts in NVS, saved every 10 min), `boot_id`, `seq`,
+  `suppressed`, `saturated`, `handling`. The integration uses them to count correctly across
+  restarts, lost messages and power cuts during a WiFi outage.
+- Legacy topics are off by default for new devices (they mix the data of several devices).
+- HA discovery: binary sensors **Counter saturated** and **Handling**, numbers for the logo timing.
 
 ### 2.0.7 (2026-09-20)
 
