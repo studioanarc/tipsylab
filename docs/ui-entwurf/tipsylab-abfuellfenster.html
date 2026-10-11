@@ -1,0 +1,888 @@
+<title>TIPSYLAB Abfüllfenster</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,300..700,0..100,0..1&family=JetBrains+Mono:wght@400;500;700&family=Rubik+Mono+One&display=swap">
+<style>
+/* Layout: Papier-Grund wie tipsy.pt („the hangtag, on screen“), keine runden Ecken.
+   Vier Screens: ab ~1480px in einer Reihe, darunter 2×2, am Telefon untereinander.
+   Mono spricht die Daten, Serif erzählt, Rubik Mono One nur für die eine Antwort. */
+:root {
+  --paper: #f9e3e7;     /* lab rosé, Grund */
+  --screen: #fdf1f3;    /* App-Fläche, eine Spur heller */
+  --ink: #2b2c78;       /* Ultramarin, Druckfarbe */
+  --red: #d24e35;       /* Koralle, nur für Warnungen */
+  --muted: color-mix(in srgb, var(--ink) 66%, var(--paper));
+  --rule: color-mix(in srgb, var(--ink) 38%, transparent);
+  --band: color-mix(in srgb, var(--ink) 13%, transparent);
+  --redband: color-mix(in srgb, var(--red) 20%, transparent);
+  --grain-opacity: .07;
+  --dev-bg: #2b2c78; --dev-fg: #f9e3e7; --dev-ok: #7ce0a0; --dev-soon: #f0a24a; --dev-now: #ff8466; --dev-bezel: #19191f;   /* AtomS3-Display, in beiden Themes gleich */
+
+  --font-display: "Rubik Mono One", "Arial Black", system-ui, sans-serif;
+  --font-body: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --wonk: "SOFT" 40, "WONK" 1;
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #17184a; --screen: #1f2160; --ink: #f7dfe4; --red: #ff876b; --grain-opacity: .04;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #17184a; --screen: #1f2160; --ink: #f7dfe4; --red: #ff876b; --grain-opacity: .04;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; border-radius: 0; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-optical-sizing: auto;
+  font-variation-settings: var(--wonk);
+  font-size: 16px;
+  line-height: 1.5;
+}
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image: var(--grain); opacity: var(--grain-opacity);
+}
+.wrap { position: relative; z-index: 1; max-width: 1640px; margin: 0 auto; padding-inline: clamp(16px, 4vw, 40px); padding-block: 28px 56px; }
+
+/* ---------- Seitenkopf ---------- */
+.masthead { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 18px; }
+.masthead svg { width: 52px; height: 52px; flex: none; }
+.masthead h1 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(26px, 5vw, 40px); line-height: 1; letter-spacing: .01em; }
+.masthead .kicker { font-family: var(--font-mono); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.intro { max-width: 66ch; margin: 18px 0 0; font-size: 17px; text-wrap: pretty; }
+.flag { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; padding: 5px 11px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; background: var(--ink); color: var(--paper); }
+
+/* ---------- Screens ---------- */
+.phones { display: grid; grid-template-columns: 1fr; gap: 44px 32px; margin-top: 36px; align-items: start; }
+@media (min-width: 780px) { .phones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1500px) { .phones { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+figure { margin: 0; display: grid; gap: 18px; min-width: 0; }
+.phone {
+  width: 100%; max-width: 380px; margin-inline: auto;
+  background: var(--screen); color: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--ink);
+  padding: 14px 18px 22px;
+}
+.notch { width: 92px; height: 5px; background: var(--rule); margin: 0 auto 14px; }
+figcaption { max-width: 380px; width: 100%; margin-inline: auto; display: grid; gap: 6px; }
+figcaption h2 { margin: 0; font-family: var(--font-mono); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; }
+figcaption p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--ink); text-wrap: pretty; }
+
+/* ---------- App-Bausteine ---------- */
+.app-top { display: flex; align-items: center; gap: 10px; }
+.app-top svg { width: 34px; height: 34px; flex: none; }
+.batch { display: grid; line-height: 1.25; min-width: 0; }
+.batch b { font-family: var(--font-mono); font-weight: 700; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.batch span { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.live { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .16em; }
+.live i { width: 8px; height: 8px; background: var(--red); animation: blink 1.6s steps(1) infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+
+.eyebrow { margin: 20px 0 6px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.answer { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(32px, 9vw, 42px); line-height: 1; letter-spacing: -.01em; }
+.answer-sub { margin: 8px 0 0; font-family: var(--font-mono); font-weight: 700; font-size: 15px; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+.say { margin: 12px 0 0; font-size: 15px; line-height: 1.45; text-wrap: pretty; }
+.hint { margin: 8px 0 0; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; color: var(--red); }
+
+.windowbar { display: block; width: 100%; height: auto; margin-top: 16px; overflow: visible; }
+.windowbar .axis { stroke: var(--ink); stroke-width: 1.5; }
+.windowbar .tick { stroke: var(--rule); stroke-width: 1; }
+.windowbar .band { fill: var(--band); stroke: var(--ink); stroke-width: 1.5; }
+.windowbar .best { fill: var(--ink); }
+.windowbar text { fill: var(--muted); font-family: var(--font-mono); font-size: 10px; }
+.windowbar .nowlabel { fill: var(--ink); font-weight: 700; }
+
+.control { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; margin-top: 16px; font-family: var(--font-mono); font-size: 12px; }
+.control.two { grid-template-columns: 1fr auto; }
+.control label { letter-spacing: .08em; text-transform: uppercase; }
+.control output { font-weight: 700; min-width: 5ch; text-align: right; font-variant-numeric: tabular-nums; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 0; background: transparent; cursor: pointer; }
+input[type="range"]::-webkit-slider-runnable-track { height: 3px; background: var(--ink); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6.5px; background: var(--ink); border: 2px solid var(--screen); border-radius: 0; }
+input[type="range"]::-moz-range-track { height: 3px; background: var(--ink); }
+input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; background: var(--ink); border: 2px solid var(--screen); border-radius: 0; }
+
+.leaders { margin: 18px 0 0; display: grid; gap: 8px; font-family: var(--font-mono); font-size: 13px; }
+.leaders > div { display: flex; align-items: baseline; gap: 6px; }
+.leaders dt { flex: 1; display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.leaders dt::after { content: ""; flex: 1; min-width: 10px; border-bottom: 2px dotted var(--rule); transform: translateY(-4px); }
+.leaders dd { margin: 0; flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+.leaders .warn dd, .leaders .warn dt { color: var(--red); }
+.leaders small { font-weight: 400; color: var(--muted); }
+
+.chart { display: block; width: 100%; height: auto; margin-top: 18px; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; }
+.chart text { fill: var(--muted); font-family: var(--font-mono); font-size: 9px; }
+.chart .measured { fill: none; stroke: var(--ink); stroke-width: 2.2; stroke-linejoin: miter; }
+.chart .forecast { fill: none; stroke: var(--ink); stroke-width: 2; stroke-dasharray: 4 4; }
+.chart .setline { fill: none; stroke: var(--red); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.chart .cone { fill: var(--band); stroke: none; }
+.chart .target { fill: var(--redband); stroke: none; }
+.chart .targetlabel { fill: var(--red); font-weight: 700; }
+.chart .nowline { stroke: var(--ink); stroke-width: 1.2; }
+.chart .anchor { fill: var(--ink); stroke: var(--screen); stroke-width: 1.5; }
+.chart .bubble { fill: var(--rule); }
+.chart .vent { stroke: var(--red); stroke-width: 1.5; }
+.chart .label-ink { fill: var(--ink); font-weight: 700; }
+
+.primary {
+  display: block; width: 100%; margin-top: 18px; padding: 14px 18px;
+  font-family: var(--font-display); font-size: 15px; letter-spacing: .04em;
+  color: var(--screen); background: var(--ink);
+  border: 2px solid var(--ink); cursor: pointer;
+}
+.primary:active { transform: translate(2px, 2px); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--red); outline-offset: 3px; }
+.status { margin: 14px 0 0; font-family: var(--font-mono); font-size: 10.5px; line-height: 1.5; color: var(--muted); text-align: center; }
+
+.seg { display: flex; border: 2px solid var(--ink); margin-top: 4px; }
+.seg button { flex: 1; min-width: 0; padding: 9px 6px; font-family: var(--font-mono); font-size: 12px; line-height: 1.25; color: var(--ink); background: transparent; border: 0; cursor: pointer; }
+.seg button + button { border-left: 2px solid var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--screen); font-weight: 700; }
+.seg small { display: block; font-size: 10px; font-weight: 400; opacity: .8; }
+
+.big-input { display: flex; align-items: baseline; gap: 10px; margin-top: 18px; padding-bottom: 6px; border-bottom: 3px solid var(--ink); }
+.big-input input { width: 100%; min-width: 0; padding: 0; font-family: var(--font-display); font-size: 42px; line-height: 1.1; color: var(--ink); background: transparent; border: 0; font-variant-numeric: tabular-nums; }
+.big-input span { flex: none; font-family: var(--font-mono); font-size: 16px; font-weight: 700; }
+.result { margin-top: 18px; padding: 14px 14px 16px; border: 2px dashed var(--rule); }
+.result .eyebrow { margin-top: 0; }
+.result .leaders { margin-top: 8px; }
+.toast { margin: 10px 0 0; min-height: 1.5em; font-family: var(--font-mono); font-size: 11.5px; text-align: center; }
+
+.scale { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+.category { margin: 10px 0 0; font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
+.category.off { color: var(--red); }
+.note { margin: 14px 0 0; font-size: 14px; line-height: 1.45; text-wrap: pretty; }
+.fine { margin: 8px 0 0; font-family: var(--font-mono); font-size: 10.5px; line-height: 1.5; color: var(--muted); }
+
+.field { display: grid; grid-template-columns: 1fr auto auto; align-items: baseline; gap: 8px; margin-top: 10px; font-family: var(--font-mono); font-size: 13px; }
+.field input { width: 6ch; padding: 2px 0; font: inherit; font-weight: 700; text-align: right; color: var(--ink); background: transparent; border: 0; border-bottom: 2px solid var(--ink); }
+
+/* ---------- 5 · Display am Gärröhrchen ---------- */
+.device { margin-top: 56px; display: grid; gap: 18px; }
+.device h2 { margin: 0; font-family: var(--font-mono); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; }
+.device-row { display: flex; flex-wrap: wrap; gap: 28px 36px; align-items: flex-start; }
+.atom { margin: 0; display: grid; gap: 10px; }
+.atom figcaption { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.atom-screen { width: min(276px, 100%); aspect-ratio: 1 / 1; display: grid; background: var(--dev-bg); color: var(--dev-fg); border: 10px solid var(--dev-bezel); box-shadow: 8px 8px 0 var(--ink); }
+.atom-nums { display: grid; grid-template-rows: repeat(3, 1fr); align-items: center; padding: 6px 14px; }
+.atom-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-family: var(--font-mono); }
+.atom-line b { font-size: 46px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; white-space: nowrap; }
+.atom-line b small { font-size: 22px; margin-left: 1px; }
+.atom-line b.ok { color: var(--dev-ok); }
+.atom-line b.soon { color: var(--dev-soon); }
+.atom-line b.now, .atom-line b.late { color: var(--dev-now); }
+.atom-line b.late { animation: blink 1s steps(1) infinite; }
+.atom-line span { font-size: 15px; font-weight: 700; letter-spacing: .1em; opacity: .85; }
+.atom-logo { display: grid; place-items: center; }
+.atom-logo svg { width: 80%; height: 80%; color: var(--dev-fg); }
+.device-notes { max-width: 46ch; display: grid; gap: 10px; align-content: start; }
+.device-notes p { margin: 0; font-size: 15px; line-height: 1.45; }
+.seg.tight button { font-size: 11px; padding: 7px 4px; }
+.secondary { justify-self: start; margin-top: 6px; padding: 10px 14px; font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); background: transparent; border: 2px solid var(--ink); cursor: pointer; }
+
+footer.colophon { margin-top: 48px; padding-top: 18px; border-top: 2px dotted var(--rule); max-width: 80ch; }
+footer.colophon p { margin: 0 0 8px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) { .live i, .atom-line b.late { animation: none; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="tipsy-logo" viewBox="0 0 1624 1550"><path fill="currentColor" fill-rule="evenodd" d="M 743.5,1523.5 C 735.717,1521.86 727.717,1520.86 719.5,1520.5C 696.849,1518.11 674.516,1514.11 652.5,1508.5C 650.162,1506.96 647.495,1506.29 644.5,1506.5C 642.708,1506.63 641.042,1506.3 639.5,1505.5C 637.562,1503.84 635.228,1503.17 632.5,1503.5C 632.167,1503.5 631.833,1503.5 631.5,1503.5C 628.619,1501.32 625.286,1500.32 621.5,1500.5C 619.485,1499.08 617.152,1498.41 614.5,1498.5C 610.206,1496.18 605.54,1494.85 600.5,1494.5C 596.622,1491.99 592.289,1490.65 587.5,1490.5C 585.044,1488.13 582.044,1487.13 578.5,1487.5C 576.497,1485.02 573.831,1484.02 570.5,1484.5C 569.01,1482.72 567.01,1482.05 564.5,1482.5C 562.497,1480.02 559.831,1479.02 556.5,1479.5C 555.22,1478.07 553.553,1477.4 551.5,1477.5C 550.365,1475.79 548.698,1475.12 546.5,1475.5C 545.365,1473.79 543.698,1473.12 541.5,1473.5C 540.365,1471.79 538.698,1471.12 536.5,1471.5C 535.22,1470.07 533.553,1469.4 531.5,1469.5C 529.574,1467.71 527.241,1466.71 524.5,1466.5C 521.912,1464.38 518.912,1463.04 515.5,1462.5C 511.584,1459.71 507.251,1457.71 502.5,1456.5C 490.818,1449.99 478.818,1443.99 466.5,1438.5C 464.847,1438.34 463.514,1437.67 462.5,1436.5C 460.664,1434.41 458.331,1433.08 455.5,1432.5C 449.666,1428.08 443.332,1424.41 436.5,1421.5C 434.664,1419.41 432.331,1418.08 429.5,1417.5C 429.027,1416.09 428.027,1415.43 426.5,1415.5C 407.842,1402.84 389.175,1390.17 370.5,1377.5C 348.437,1359.61 326.77,1341.11 305.5,1322C 284.54,1301.88 264.54,1281.04 245.5,1259.5C 244.243,1256.57 242.243,1254.24 239.5,1252.5C 238.92,1250.25 237.587,1248.58 235.5,1247.5C 232.589,1242.25 228.922,1237.59 224.5,1233.5C 222.889,1229.95 220.556,1226.95 217.5,1224.5C 216.567,1221.63 214.9,1219.3 212.5,1217.5C 209.655,1212.47 206.321,1207.81 202.5,1203.5C 201.567,1200.63 199.9,1198.3 197.5,1196.5C 197.573,1194.97 196.906,1193.97 195.5,1193.5C 195.573,1191.97 194.906,1190.97 193.5,1190.5C 189.33,1182.82 184.663,1175.49 179.5,1168.5C 179.573,1166.97 178.906,1165.97 177.5,1165.5C 177.25,1163.33 176.25,1161.66 174.5,1160.5C 173.662,1160.16 173.328,1159.49 173.5,1158.5C 173.25,1156.33 172.25,1154.66 170.5,1153.5C 168.336,1148.5 165.669,1143.83 162.5,1139.5C 161.921,1136.67 160.588,1134.34 158.5,1132.5C 157.326,1131.49 156.66,1130.15 156.5,1128.5C 151.008,1116.18 145.008,1104.18 138.5,1092.5C 136.963,1087.75 135.13,1083.09 133,1078.5C 132.583,1077.24 131.75,1076.58 130.5,1076.5C 122.279,1057.39 114.613,1038.06 107.5,1018.5C 108.097,1018.26 108.43,1017.76 108.5,1017C 107.099,1012.29 105.432,1007.79 103.5,1003.5C 101.928,1000.78 100.928,997.785 100.5,994.5C 100.59,991.848 99.9238,989.515 98.5,987.5C 98.5905,984.848 97.9238,982.515 96.5,980.5C 95.0762,978.485 94.4095,976.152 94.5,973.5C 94.5905,970.848 93.9238,968.515 92.5,966.5C 49.851,800.56 61.0177,638.226 126,479.5C 197.373,316.129 311.207,191.629 467.5,106C 635.196,19.5684 811.196,-3.09829 995.5,38C 1178.91,83.724 1326.08,182.557 1437,334.5C 1543.05,486.384 1588.72,655.051 1574,840.5C 1552.27,1048.82 1462.11,1220.32 1303.5,1355C 1140.12,1486.61 953.451,1542.78 743.5,1523.5 Z M 864.5,75.5 C 871.49,75.9991 878.49,76.3325 885.5,76.5C 889.9,78.1042 894.566,78.7709 899.5,78.5C 901.833,78.5 904.167,78.5 906.5,78.5C 906.611,79.1174 906.944,79.6174 907.5,80C 911.152,80.4986 914.818,80.6653 918.5,80.5C 1122.81,112.16 1283.97,212.16 1402,380.5C 1453.07,456.503 1487.9,539.503 1506.5,629.5C 1507.24,640.215 1509.24,650.549 1512.5,660.5C 1516.06,683.353 1518.4,706.353 1519.5,729.5C 1519.65,762.174 1519.32,794.84 1518.5,827.5C 1518.5,829.167 1518.5,830.833 1518.5,832.5C 1515.94,845.949 1513.94,859.616 1512.5,873.5C 1503.65,886.502 1493.81,898.835 1483,910.5C 1438.67,957.501 1388.51,997.001 1332.5,1029C 1251.51,1073.4 1165.51,1105.57 1074.5,1125.5C 1069.88,1125.74 1065.55,1126.74 1061.5,1128.5C 1026.32,1135.1 990.987,1140.76 955.5,1145.5C 948.6,1145.85 941.934,1146.85 935.5,1148.5C 851.301,1156 766.967,1157.5 682.5,1153C 652.707,1151.22 623.04,1148.39 593.5,1144.5C 588.75,1142.97 583.75,1142.3 578.5,1142.5C 578.167,1142.5 577.833,1142.5 577.5,1142.5C 572.402,1141.04 567.069,1140.38 561.5,1140.5C 534.98,1137.24 508.647,1133.24 482.5,1128.5C 480.162,1126.96 477.495,1126.29 474.5,1126.5C 471.43,1126.63 468.43,1126.3 465.5,1125.5C 463.162,1123.96 460.495,1123.29 457.5,1123.5C 446.094,1121.54 434.761,1119.2 423.5,1116.5C 420.781,1115.09 417.781,1114.42 414.5,1114.5C 412.5,1114.17 410.5,1113.83 408.5,1113.5C 406.562,1111.84 404.228,1111.17 401.5,1111.5C 399.5,1111.17 397.5,1110.83 395.5,1110.5C 393.562,1108.84 391.228,1108.17 388.5,1108.5C 379.682,1107.13 371.016,1105.13 362.5,1102.5C 360.485,1101.08 358.152,1100.41 355.5,1100.5C 350.112,1099.37 344.778,1098.04 339.5,1096.5C 334.342,1093.46 328.675,1091.79 322.5,1091.5C 316.126,1089.96 309.793,1088.29 303.5,1086.5C 300.495,1084.72 297.162,1083.72 293.5,1083.5C 289.498,1081.39 285.165,1080.06 280.5,1079.5C 272.51,1077.92 264.843,1075.59 257.5,1072.5C 253.498,1070.39 249.165,1069.06 244.5,1068.5C 240.498,1066.39 236.165,1065.06 231.5,1064.5C 222.198,1061.51 212.865,1058.51 203.5,1055.5C 200.947,1053.42 197.947,1052.08 194.5,1051.5C 190.634,1051.05 187.134,1049.71 184,1047.5C 175.078,1027.23 167.245,1006.57 160.5,985.5C 159.538,981.605 158.204,977.939 156.5,974.5C 156.59,971.848 155.924,969.515 154.5,967.5C 154.59,964.848 153.924,962.515 152.5,960.5C 147.753,941.927 143.42,923.261 139.5,904.5C 139.247,900.96 138.581,897.627 137.5,894.5C 134.585,876.838 131.918,859.172 129.5,841.5C 129.646,831.296 128.979,821.296 127.5,811.5C 127.5,810.5 127.5,809.5 127.5,808.5C 126.186,782.5 126.186,756.5 127.5,730.5C 128.261,721.175 128.928,711.842 129.5,702.5C 131.48,690.678 133.146,678.678 134.5,666.5C 164.248,485.448 250.248,337.615 392.5,223C 450.375,177.715 514.041,142.215 583.5,116.5C 598.171,112.609 612.504,107.942 626.5,102.5C 633.183,99.7425 640.183,97.7425 647.5,96.5C 651.163,96.0482 654.83,95.5482 658.5,95C 659.056,94.6174 659.389,94.1174 659.5,93.5C 667.913,90.8989 676.579,88.8989 685.5,87.5C 691.216,87.7726 696.549,86.7726 701.5,84.5C 701.833,84.5 702.167,84.5 702.5,84.5C 713.739,83.5693 724.739,81.9027 735.5,79.5C 740.96,78.2627 746.627,77.596 752.5,77.5C 789.806,75.7442 827.139,75.0775 864.5,75.5 Z M 1065.5,1425.5 C 1053.61,1429.13 1041.94,1433.13 1030.5,1437.5C 1011.15,1442.84 991.817,1447.84 972.5,1452.5C 967.717,1453.51 963.05,1454.51 958.5,1455.5C 952.651,1456.2 946.984,1457.2 941.5,1458.5C 926.821,1460.5 912.155,1462.5 897.5,1464.5C 885.985,1465.1 874.651,1466.1 863.5,1467.5C 862.833,1467.5 862.167,1467.5 861.5,1467.5C 833.485,1467.76 805.485,1467.43 777.5,1466.5C 766.484,1466.07 755.484,1465.4 744.5,1464.5C 739.06,1462.94 733.394,1461.94 727.5,1461.5C 725.5,1461.5 723.5,1461.5 721.5,1461.5C 719.095,1460.23 716.428,1459.57 713.5,1459.5C 528.18,1427.53 378.68,1337.2 265,1188.5C 245.022,1161.14 227.189,1132.81 211.5,1103.5C 214.035,1104.9 216.702,1105.9 219.5,1106.5C 224.085,1109.14 229.085,1110.81 234.5,1111.5C 243.89,1115.07 253.556,1118.07 263.5,1120.5C 268.9,1122.74 274.567,1124.41 280.5,1125.5C 284.502,1127.61 288.835,1128.94 293.5,1129.5C 295.838,1131.04 298.505,1131.71 301.5,1131.5C 306.378,1133.24 311.378,1134.57 316.5,1135.5C 320.502,1137.61 324.835,1138.94 329.5,1139.5C 336.461,1141.38 343.461,1143.04 350.5,1144.5C 352.438,1146.16 354.772,1146.83 357.5,1146.5C 359.117,1147.04 360.784,1147.37 362.5,1147.5C 364.838,1149.04 367.505,1149.71 370.5,1149.5C 373.167,1150.17 375.833,1150.83 378.5,1151.5C 382.163,1153.42 386.163,1154.42 390.5,1154.5C 396.442,1156.05 402.442,1157.38 408.5,1158.5C 410.515,1159.92 412.848,1160.59 415.5,1160.5C 416.5,1160.5 417.5,1160.5 418.5,1160.5C 420.838,1162.04 423.505,1162.71 426.5,1162.5C 428.117,1163.04 429.784,1163.37 431.5,1163.5C 433.515,1164.92 435.848,1165.59 438.5,1165.5C 439.5,1165.5 440.5,1165.5 441.5,1165.5C 443.515,1166.92 445.848,1167.59 448.5,1167.5C 449.5,1167.5 450.5,1167.5 451.5,1167.5C 453.515,1168.92 455.848,1169.59 458.5,1169.5C 468.228,1170.7 477.894,1172.37 487.5,1174.5C 491.883,1176.23 496.55,1177.23 501.5,1177.5C 506.907,1177.7 512.24,1178.37 517.5,1179.5C 521.21,1181.14 525.21,1181.8 529.5,1181.5C 530.167,1181.5 530.833,1181.5 531.5,1181.5C 535.183,1183.25 539.183,1183.92 543.5,1183.5C 544.167,1183.5 544.833,1183.5 545.5,1183.5C 545.918,1184.22 546.584,1184.72 547.5,1185C 550.482,1185.5 553.482,1185.66 556.5,1185.5C 668.635,1201.37 781.302,1206.37 894.5,1200.5C 902.374,1200.54 910.04,1199.87 917.5,1198.5C 932.837,1197.21 948.17,1195.87 963.5,1194.5C 969.114,1194.93 974.447,1194.26 979.5,1192.5C 980.167,1192.5 980.833,1192.5 981.5,1192.5C 987.098,1192.84 992.432,1192.18 997.5,1190.5C 1028.2,1185.83 1058.86,1180.83 1089.5,1175.5C 1094.12,1175.26 1098.45,1174.26 1102.5,1172.5C 1109.71,1170.41 1117.04,1168.74 1124.5,1167.5C 1129.12,1167.26 1133.45,1166.26 1137.5,1164.5C 1146.34,1161.71 1155.34,1159.37 1164.5,1157.5C 1169.26,1157.23 1173.6,1155.9 1177.5,1153.5C 1193.97,1148.97 1210.3,1143.97 1226.5,1138.5C 1231.96,1137.79 1236.96,1136.12 1241.5,1133.5C 1312.87,1108.15 1379.87,1074.32 1442.5,1032C 1455.62,1022.55 1468.45,1012.72 1481,1002.5C 1437.56,1124.53 1366.06,1227.03 1266.5,1310C 1206,1359.27 1139,1397.77 1065.5,1425.5 Z M 1304.5,531.5 C 1303.23,533.905 1302.57,536.572 1302.5,539.5C 1300.42,546.063 1298.76,552.73 1297.5,559.5C 1296.08,561.515 1295.41,563.848 1295.5,566.5C 1294.04,569.704 1293.54,573.038 1294,576.5C 1327.87,605.377 1362.04,633.877 1396.5,662C 1398.38,664.126 1399.38,666.626 1399.5,669.5C 1348.84,672.272 1298.17,675.105 1247.5,678C 1225.29,723.101 1203.63,768.601 1182.5,814.5C 1179.93,814.855 1177.43,815.521 1175,816.5C 1174.05,816.095 1173.39,815.428 1173,814.5C 1157.66,768.636 1142.82,722.636 1128.5,676.5C 1090.84,675.284 1053.18,674.617 1015.5,674.5C 1014.48,669.929 1013.14,665.429 1011.5,661C 1040.92,637.777 1070.59,614.777 1100.5,592C 1085.5,545.667 1070.5,499.333 1055.5,453C 1058.25,450.197 1061.58,449.197 1065.5,450C 1108.78,473.889 1152.28,497.389 1196,520.5C 1238.83,492.51 1282,465.176 1325.5,438.5C 1326.26,441.141 1326.43,443.808 1326,446.5C 1318.99,474.89 1311.82,503.223 1304.5,531.5 Z M 591.5,567.5 C 591.345,570.716 592.345,573.383 594.5,575.5C 596.035,579.437 597.368,583.437 598.5,587.5C 598.345,590.716 599.345,593.383 601.5,595.5C 602.566,597.701 603.233,600.035 603.5,602.5C 604.35,606.553 605.516,610.553 607,614.5C 607.383,615.056 607.883,615.389 608.5,615.5C 609.566,617.701 610.233,620.035 610.5,622.5C 611.35,626.553 612.516,630.553 614,634.5C 614.383,635.056 614.883,635.389 615.5,635.5C 616.566,637.701 617.233,640.035 617.5,642.5C 618.35,646.553 619.516,650.553 621,654.5C 621.383,655.056 621.883,655.389 622.5,655.5C 623.566,657.701 624.233,660.035 624.5,662.5C 625.025,666.533 626.358,670.2 628.5,673.5C 677.833,673.5 727.167,673.5 776.5,673.5C 776.82,676.898 776.487,680.232 775.5,683.5C 739.818,717.683 703.985,751.683 668,785.5C 667.517,786.448 667.351,787.448 667.5,788.5C 667.41,791.152 668.076,793.485 669.5,795.5C 677.786,824.9 685.452,854.566 692.5,884.5C 692.259,886.898 692.926,888.898 694.5,890.5C 696.118,894.575 697.118,898.908 697.5,903.5C 697.259,905.898 697.926,907.898 699.5,909.5C 701.118,913.575 702.118,917.908 702.5,922.5C 702.259,924.898 702.926,926.898 704.5,928.5C 705.461,930.265 705.795,932.265 705.5,934.5C 700.95,935.116 696.95,933.949 693.5,931C 657.167,907.833 620.833,884.667 584.5,861.5C 547.366,884.803 510.366,908.303 473.5,932C 470.07,934.419 466.404,934.919 462.5,933.5C 463.05,931.343 463.717,929.343 464.5,927.5C 465.79,924.358 466.79,921.025 467.5,917.5C 467.42,914.219 468.087,911.219 469.5,908.5C 470.79,905.358 471.79,902.025 472.5,898.5C 472.42,895.219 473.087,892.219 474.5,889.5C 476.123,885.022 477.456,880.356 478.5,875.5C 478.216,873.585 478.549,871.919 479.5,870.5C 481.123,866.022 482.456,861.356 483.5,856.5C 483.216,854.585 483.549,852.919 484.5,851.5C 486.123,847.022 487.456,842.356 488.5,837.5C 488.216,835.585 488.549,833.919 489.5,832.5C 491.123,828.022 492.456,823.356 493.5,818.5C 493.216,816.585 493.549,814.919 494.5,813.5C 496.123,809.022 497.456,804.356 498.5,799.5C 499.661,794.862 500.495,790.196 501,785.5C 465,751.5 429,717.5 393,683.5C 392.502,680.183 392.335,676.85 392.5,673.5C 441.838,673.833 491.171,673.5 540.5,672.5C 552.833,637.833 565.167,603.167 577.5,568.5C 582.12,567.507 586.786,567.173 591.5,567.5 Z M 1305.5,635.5 C 1303.5,636.167 1301.5,636.833 1299.5,637.5C 1273.82,638.841 1248.16,640.341 1222.5,642C 1210.02,669.644 1196.68,696.81 1182.5,723.5C 1179.61,711.83 1175.94,700.497 1171.5,689.5C 1167.07,673.56 1162.07,657.893 1156.5,642.5C 1156.46,641.417 1156.13,640.417 1155.5,639.5C 1138.17,638.833 1120.83,638.167 1103.5,637.5C 1116.88,627.112 1130.21,616.779 1143.5,606.5C 1144.6,605.399 1144.76,604.066 1144,602.5C 1140.43,591.289 1136.6,580.289 1132.5,569.5C 1129.28,556.83 1125.28,544.496 1120.5,532.5C 1119.61,529.32 1118.61,526.154 1117.5,523C 1117.83,522.5 1118.17,522 1118.5,521.5C 1144.67,536.087 1171.01,550.421 1197.5,564.5C 1220.83,549.5 1244.17,534.5 1267.5,519.5C 1267.83,519.833 1268.17,520.167 1268.5,520.5C 1262.73,543.396 1256.73,566.23 1250.5,589C 1268.4,604.958 1286.73,620.458 1305.5,635.5 Z M 587.5,669.5 C 588.566,671.701 589.233,674.035 589.5,676.5C 590.35,680.553 591.516,684.553 593,688.5C 593.383,689.056 593.883,689.389 594.5,689.5C 595.566,691.701 596.233,694.035 596.5,696.5C 597.35,700.553 598.516,704.553 600,708.5C 600.383,709.056 600.883,709.389 601.5,709.5C 601.5,709.833 601.5,710.167 601.5,710.5C 631.167,711.167 660.833,711.833 690.5,712.5C 669.172,732.995 647.672,753.328 626,773.5C 625.982,775.797 626.149,778.131 626.5,780.5C 626.41,783.152 627.076,785.485 628.5,787.5C 630.102,791.239 631.102,795.239 631.5,799.5C 631.41,802.152 632.076,804.485 633.5,806.5C 635.102,810.239 636.102,814.239 636.5,818.5C 636.41,821.152 637.076,823.485 638.5,825.5C 640.593,830.878 641.927,836.545 642.5,842.5C 642.259,844.898 642.926,846.898 644.5,848.5C 645.965,850.686 646.298,853.019 645.5,855.5C 625.143,842.797 604.81,830.13 584.5,817.5C 564.037,829.901 543.704,842.568 523.5,855.5C 523.167,855.167 522.833,854.833 522.5,854.5C 526.131,841.573 529.464,828.573 532.5,815.5C 534.432,811.805 535.765,807.805 536.5,803.5C 536.325,801.379 536.659,799.379 537.5,797.5C 539.279,793.406 540.612,789.073 541.5,784.5C 542.049,780.779 542.549,777.112 543,773.5C 521.302,753.3 499.802,732.967 478.5,712.5C 508.003,711.833 537.669,711.167 567.5,710.5C 568.127,709.583 568.461,708.583 568.5,707.5C 573.368,693.562 578.035,679.562 582.5,665.5C 583.117,665.389 583.617,665.056 584,664.5C 584.902,666.431 586.069,668.097 587.5,669.5 Z"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header class="masthead">
+    <svg role="img" aria-label="Tipsy-Logo"><use href="#tipsy-logo"/></svg>
+    <div>
+      <div class="kicker">Pet Nat · Charmat · Naturwein · UI-Entwurf</div>
+      <h1>TIPSYLAB</h1>
+    </div>
+  </header>
+  <p class="intro">Vier Screens der App und das Display am Gärröhrchen. Die App läuft als eigenes Panel in Home Assistant, auf dem Handy also in der Home-Assistant-App. Die ersten drei Screens gehören zu einem Pet Nat und beantworten eine Frage: Wann kommt er in die Flasche? Der vierte regelt den Druck eines Charmat-Tanks. Die Regler rechnen wirklich: Kellertemperatur, Zieldruck, Flasche, Malo und Tanktemperatur verschieben die Ergebnisse, und eine Messung im zweiten Screen lässt sich speichern.</p>
+  <div class="flag">Beispieldaten · kein Live-Feed</div>
+
+  <main class="phones">
+    <!-- ============ 1 · Heute (Pet Nat) ============ -->
+    <figure>
+      <div class="phone" aria-label="Screen Heute">
+        <div class="notch"></div>
+        <div class="app-top">
+          <svg aria-hidden="true"><use href="#tipsy-logo"/></svg>
+          <div class="batch"><b>DATA Rosé ★ 2025</b><span>Pet Nat · Tank 02 · Tag 9 · Baga</span></div>
+          <span class="live"><i></i>LIVE</span>
+        </div>
+
+        <p class="eyebrow">Abfüllen</p>
+        <p class="answer" id="ans-day">SO 18.10.</p>
+        <p class="answer-sub" id="ans-time">≈ 12 UHR</p>
+        <p class="fine" id="ans-window">Fenster Sa 17.10. 24:00 – Mo 19.10. 05:15</p>
+        <p class="say" id="ans-say">In etwa zwei Tagen.</p>
+
+        <svg class="windowbar" id="wbar" viewBox="0 0 320 46" role="img" aria-label="Abfüllfenster auf der Zeitachse"></svg>
+
+        <div class="control">
+          <label for="t-cellar">Keller</label>
+          <input type="range" id="t-cellar" min="8" max="18" step="1" value="13">
+          <output id="t-out" for="t-cellar">13 °C</output>
+        </div>
+        <p class="hint" id="t-hint" hidden></p>
+
+        <dl class="leaders">
+          <div><dt>Restzucker</dt><dd id="v-sugar">16 ± 2 g/L</dd></div>
+          <div><dt>Alkohol</dt><dd id="v-abv">10,6 % vol</dd></div>
+          <div class="warn" id="row-now"><dt>Druck, wenn jetzt</dt><dd id="v-pnow">5,5 bar</dd></div>
+          <div><dt>Ziel beim Öffnen</dt><dd id="v-target">1,6–2,5 bar</dd></div>
+        </dl>
+
+        <svg class="chart" id="chart" viewBox="0 0 320 196" role="img" aria-label="Restzucker der letzten Tage mit Prognose"></svg>
+
+        <button class="primary" type="button" id="go-measure">+ Messung</button>
+        <p class="status" id="status">Blasen 12/min · Spindel 0,999 · 13,1 °C · vor 2 min</p>
+      </div>
+      <figcaption>
+        <h2>1 · Heute</h2>
+        <p>Das Datum steht oben und groß, darunter das Fenster mit seiner Unsicherheit. Dazu kommt der eine Hebel, den du in der Hand hast: die Kellertemperatur. Spindel, Blasen und Temperatur stehen nur klein in der Statuszeile.</p>
+      </figcaption>
+    </figure>
+
+    <!-- ============ 2 · Messung ============ -->
+    <figure>
+      <div class="phone" aria-label="Screen Messung" id="measure">
+        <div class="notch"></div>
+        <div class="app-top">
+          <svg aria-hidden="true"><use href="#tipsy-logo"/></svg>
+          <div class="batch"><b>Messung</b><span>Tank 02 · Fr 16.10. · 18:04</span></div>
+        </div>
+
+        <p class="eyebrow">Was hast du gemessen?</p>
+        <div class="seg" role="group" aria-label="Messgerät">
+          <button type="button" data-mode="brix" aria-pressed="true">Refraktometer</button>
+          <button type="button" data-mode="oe" aria-pressed="false">Dichte</button>
+          <button type="button" data-mode="lab" aria-pressed="false">Labor</button>
+        </div>
+
+        <div class="big-input">
+          <input id="m-value" type="text" inputmode="decimal" autocomplete="off" value="7,7" aria-label="Messwert">
+          <span id="m-unit">°Bx</span>
+        </div>
+        <p class="fine" id="m-help">Probe entgast, Gerät mit Temperaturausgleich. Der Alkohol wird herausgerechnet.</p>
+
+        <div class="result" aria-live="polite">
+          <p class="eyebrow">Was sich ändert</p>
+          <dl class="leaders">
+            <div><dt>Restzucker</dt><dd id="m-sugar">14 g/L <small>war 16</small></dd></div>
+            <div><dt>Alkohol</dt><dd id="m-abv">10,7 % vol</dd></div>
+            <div><dt>Spindel-Korrektur</dt><dd id="m-spindel">−0,8 °Oe</dd></div>
+            <div><dt>Fenster</dt><dd id="m-window">So 01–12 Uhr</dd></div>
+          </dl>
+        </div>
+
+        <button class="primary" type="button" id="m-save">Speichern</button>
+        <p class="toast" id="m-toast" aria-live="polite"></p>
+      </div>
+      <figcaption>
+        <h2>2 · Messung</h2>
+        <p>Deine Messung ist der wichtigste Input. Du tippst einen Wert ein und siehst sofort, was er bewirkt: neuer Restzucker, korrigierte Spindel, engeres Fenster. Mit „Speichern“ wandert sie in den ersten Screen.</p>
+      </figcaption>
+    </figure>
+
+    <!-- ============ 3 · Ziel (Pet Nat) ============ -->
+    <figure>
+      <div class="phone" aria-label="Screen Ziel">
+        <div class="notch"></div>
+        <div class="app-top">
+          <svg aria-hidden="true"><use href="#tipsy-logo"/></svg>
+          <div class="batch"><b>Ziel</b><span>DATA Rosé 2025 · beim Ansatz festgelegt</span></div>
+        </div>
+
+        <p class="eyebrow">Druck beim Öffnen, 10–20 °C</p>
+        <p class="answer" id="p-big">1,6–2,5 BAR</p>
+        <div class="control two">
+          <input type="range" id="p-target" min="1.5" max="4.5" step="0.1" value="2.5" aria-label="Druck beim Öffnen bei 20 °C">
+          <output id="p-out" for="p-target">2,5 bar bei 20 °C</output>
+        </div>
+        <div class="scale"><span>1,5</span><span>frisante bis 2,5</span><span>espumante ab 3</span><span>4,5</span></div>
+        <p class="category" id="p-cat">frisante · Perlwein</p>
+
+        <p class="eyebrow">Flasche</p>
+        <div class="seg" role="group" aria-label="Flasche">
+          <button type="button" data-bottle="s330" aria-pressed="false">330 ml<small>Kronkorken bis 4,5 bar</small></button>
+          <button type="button" data-bottle="s750" aria-pressed="true">750 ml<small>Kronkorken bis 6 bar</small></button>
+        </div>
+
+        <p class="eyebrow">Malo in der Flasche</p>
+        <div class="seg" role="group" aria-label="Malo mitrechnen">
+          <button type="button" data-malo="off" aria-pressed="true">Nicht mitrechnen</button>
+          <button type="button" data-malo="on" aria-pressed="false">Mitrechnen</button>
+        </div>
+        <div class="field" id="malo-field" hidden>
+          <label for="p-malic">Äpfelsäure beim Abfüllen</label>
+          <input id="p-malic" type="text" inputmode="decimal" value="2,0" autocomplete="off">
+          <span>g/L</span>
+        </div>
+
+        <p class="eyebrow">Gefäß</p>
+        <div class="field">
+          <label for="p-vol">Volumen</label>
+          <input id="p-vol" type="text" inputmode="numeric" value="750" autocomplete="off">
+          <span>L</span>
+        </div>
+        <p class="fine">Von Hand eingeben und nach jedem Abstich anpassen. Steht der Tank auf Wägezellen, rechnet die App es aus dem Gewicht.</p>
+
+        <dl class="leaders">
+          <div><dt>Abfüllen bei</dt><dd id="p-sugar">≈ 6,5 g/L</dd></div>
+          <div><dt>Malo-Ausgleich</dt><dd id="p-malo">aus</dd></div>
+          <div><dt>Öffnen bei 10 °C</dt><dd id="p-10">1,6 bar</dd></div>
+          <div><dt>Öffnen bei 20 °C</dt><dd id="p-20">2,5 bar</dd></div>
+          <div id="row-limit"><dt>Ungünstig, 20 °C</dt><dd id="p-limit">3,2 / 6 bar ✓</dd></div>
+        </dl>
+        <p class="note" id="p-note">Gerechnet wird so, als würde der ganze Restzucker in der Flasche vergären. Mit Torulaspora ist das nicht sicher; dann wird es leiser.</p>
+        <p class="fine">Die Faustregel „4 g/L pro bar“ stimmt nur bei etwa 12 °C. Grenzen: deine Werte für Kronkorken.</p>
+      </div>
+      <figcaption>
+        <h2>3 · Ziel</h2>
+        <p>Das Ziel ist der Druck beim Öffnen, zwischen 10 und 20 °C. Die App rechnet aus, bei wie viel Restzucker du abfüllen musst, und prüft die Grenze deiner Flasche im ungünstigen Fall. Malo und Volumen stellst du hier ein.</p>
+      </figcaption>
+    </figure>
+
+    <!-- ============ 4 · Tank (Charmat) ============ -->
+    <figure>
+      <div class="phone" aria-label="Screen Charmat-Tank">
+        <div class="notch"></div>
+        <div class="app-top">
+          <svg aria-hidden="true"><use href="#tipsy-logo"/></svg>
+          <div class="batch"><b>Tank 03 ★ Charmat</b><span>Beispiel · Tag 6 · 300 L</span></div>
+          <span class="live"><i></i>LIVE</span>
+        </div>
+
+        <p class="eyebrow">Sollwert jetzt</p>
+        <p class="answer" id="c-big">1,9 BAR</p>
+        <p class="answer-sub" id="c-sub">IST 1,8 BAR · VENTIL ZU</p>
+        <p class="say" id="c-say">Das Ventil hält den Druck, der in der Flasche 2,5 bar bei 20 °C ergibt.</p>
+
+        <div class="control">
+          <label for="c-target">Flasche</label>
+          <input type="range" id="c-target" min="1.5" max="5" step="0.1" value="2.5">
+          <output id="c-tout" for="c-target">2,5 bar</output>
+        </div>
+        <div class="control">
+          <label for="c-temp">Tank</label>
+          <input type="range" id="c-temp" min="6" max="18" step="1" value="12">
+          <output id="c-Tout" for="c-temp">12 °C</output>
+        </div>
+        <p class="fine" id="c-table">Sollwert bei 10 °C 1,6 · 12 °C 1,9 · 15 °C 2,2 · 18 °C 2,6 bar</p>
+
+        <dl class="leaders">
+          <div><dt>Gelöstes CO₂</dt><dd id="c-co2">5,4 g/L</dd></div>
+          <div><dt>Restzucker</dt><dd>9 g/L <small>Druckbilanz</small></dd></div>
+          <div><dt>Gärung</dt><dd>2,0 g/L am Tag</dd></div>
+          <div><dt>Ventil</dt><dd>zuletzt vor 14 min</dd></div>
+          <div id="c-prvrow"><dt>Sicherheitsventil</dt><dd id="c-prv">5,5 bar mech. ✓</dd></div>
+        </dl>
+
+        <p class="eyebrow">Ende der Gärung</p>
+        <div class="seg" role="group" aria-label="Ende der Gärung">
+          <button type="button" data-cmode="dry" aria-pressed="true">Durchgären</button>
+          <button type="button" data-cmode="sweet" aria-pressed="false">Restsüße halten</button>
+        </div>
+        <p class="note" id="c-mode">Die Hefe arbeitet bis trocken, das Ventil hält den CO₂-Gehalt. Danach kühlen, klären und isobar abfüllen.</p>
+
+        <svg class="chart" id="c-chart" viewBox="0 0 320 150" role="img" aria-label="Tankdruck der letzten drei Tage mit Sollwert"></svg>
+        <p class="status">Drucksensor 0–10 bar · AtomS3 tank-03 · vor 10 s</p>
+      </div>
+      <figcaption>
+        <h2>4 · Tank (Charmat)</h2>
+        <p>Im Drucktank ist der Druck die Stellgröße. Aus deinem Flaschenziel und der Tanktemperatur rechnet die App den Sollwert, ein Magnetventil hält ihn. Das mechanische Sicherheitsventil bleibt Pflicht, die Regelung ersetzt es nicht.</p>
+      </figcaption>
+    </figure>
+  </main>
+
+  <section class="device" aria-labelledby="dev-h">
+    <h2 id="dev-h">5 · Display am Gärröhrchen</h2>
+    <div class="device-row">
+      <figure class="atom">
+        <div class="atom-screen" aria-label="AtomS3-Display, Dauerbild">
+          <div class="atom-nums" id="atom-nums">
+            <div class="atom-line"><b id="a-bpm">12</b><span>BPM</span></div>
+            <div class="atom-line"><b id="a-dub" class="soon">1<small>d</small> 19<small>h</small></b><span>DUB</span></div>
+            <div class="atom-line"><b id="a-temp">13,1°</b></div>
+          </div>
+          <div class="atom-logo" id="atom-logo" hidden><svg aria-hidden="true"><use href="#tipsy-logo"/></svg></div>
+        </div>
+        <figcaption>Dauerbild, 128 × 128 px, hier doppelt groß</figcaption>
+      </figure>
+      <figure class="atom">
+        <div class="atom-screen" aria-label="AtomS3-Display bei einem Blop">
+          <div class="atom-logo"><svg aria-hidden="true"><use href="#tipsy-logo"/></svg></div>
+        </div>
+        <figcaption>Bei jedem Blop: Logo für 0,3 s</figcaption>
+      </figure>
+      <div class="device-notes">
+        <p><b>BPM</b> misst das Gerät selbst, über die letzten 60 Sekunden.</p>
+        <p><b>DUB</b> kommt von Home Assistant, im Format „3d 12h“: grün bei mehr als 3 Tagen, gelb bis das Fenster öffnet, Koralle im Fenster, blinkend, wenn es vorbei ist.</p>
+        <div class="seg tight" role="group" aria-label="DUB-Farben ansehen">
+          <button type="button" data-dub="live" aria-pressed="true">live</button>
+          <button type="button" data-dub="ok" aria-pressed="false">4 Tage</button>
+          <button type="button" data-dub="soon" aria-pressed="false">1 Tag</button>
+          <button type="button" data-dub="now" aria-pressed="false">Fenster</button>
+          <button type="button" data-dub="late" aria-pressed="false">vorbei</button>
+        </div>
+        <p>Die <b>Temperatur</b> steht nur mit Gradzeichen, aus dem Fühler im Wein.</p>
+        <p>Das <b>Logo</b> kommt ohne Kreis außen herum: Smiley in Papier-Rosé auf Ultramarin.</p>
+        <p>Kommen die Blops schneller als alle 1,2 s, zeigt das Display nicht jeden als Logo, damit die Zahlen lesbar bleiben.</p>
+        <button class="secondary" type="button" id="a-blop">Blop auslösen</button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="colophon">
+    <p>Modell im Entwurf: Henry-Konstante und Flaschendruck nach Liger-Belair et al. (2013), Gärverlauf als logistische Kurve, Temperatureinfluss mit Q10 = 2,2, beim Charmat 8 % CO₂-Verlust beim isobaren Abfüllen, Malo mit 0,33 g CO₂ je g Äpfelsäure. Die echte App läuft als Panel in Home Assistant und ersetzt die Beispielkurve durch deine Messungen: Spindel, Blasenzähler, Drucksensor und Refraktometer.</p>
+    <p>Schriften wie auf tipsy.pt: Rubik Mono One, Fraunces, JetBrains Mono.</p>
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const NS = "http://www.w3.org/2000/svg";
+  const nf = (x, d = 1) => x.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+  /* ---------- Flaschendruck (Liger-Belair et al. 2013, Henry + ideales Gas) ---------- */
+  const R = 8.314, K298 = 1.21, DH = 24800, Y = 0.47, PATM = 1.013, TB = 12;
+  const kH = (t) => K298 * Math.exp((DH / R) * (1 / (t + 273.15) - 1 / 298.15));
+  const BOTTLES = {
+    s330: { V: 0.318, v: 0.012, limit: 4.5 },
+    s750: { V: 0.730, v: 0.020, limit: 6.0 }
+  };
+  // [Sättigung beim Abfüllen, Luftanteil im Kopfraum]
+  const CASES = { mid: [0.8, 0.4], worst: [1.0, 0.79], mild: [0.6, 0.0] };
+  const YM = 0.328;                                    // g CO2 je g Äpfelsäure (Malo)
+  function gauge(S, T, b, c, mal = 0) {
+    const [fsat, xair] = CASES[c];
+    const m = b.V * (fsat * kH(TB) + Y * S + YM * mal);
+    const Tk = T + 273.15;
+    const pco2 = (m * R * Tk) / (4.4e3 * b.v + kH(T) * R * Tk * b.V);
+    return pco2 + (xair * PATM * Tk) / (TB + 273.15) - PATM;
+  }
+  function sugarFor(P, b, c, mal = 0) {
+    let lo = 0, hi = 80;
+    for (let i = 0; i < 48; i++) { const m = (lo + hi) / 2; if (gauge(m, 20, b, c, mal) > P) hi = m; else lo = m; }
+    return (lo + hi) / 2;
+  }
+
+  /* ---------- Beispielansatz: logistische Gärkurve, Referenz 13 °C ---------- */
+  const S0 = 195, K = 0.5365, T50 = 4.5, TREF = 13, Q10 = 2.2, NOW = 9;
+  const sugarAt = (tau) => S0 / (1 + Math.exp(K * (tau - T50)));
+  const tauOf = (S) => T50 + Math.log(S0 / Math.max(0.2, Math.min(S0 - 0.2, S)) - 1) / K;
+  const rateAt = (tau) => { const s = sugarAt(tau); return K * s * (1 - s / S0); }; // g/L pro Tag
+  const fT = (T) => Math.pow(Q10, (T - TREF) / 10);
+  const START = new Date(2026, 9, 7, 18, 0);              // Tag 0 = Mi 07.10.2026 18:00, jetzt = Tag 9 = Fr 16.10.
+  const dateAt = (d) => new Date(START.getTime() + d * 864e5);
+  const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  const abvOf = (S) => (S0 - S) / 16.9;
+  const sgOf = (S) => 0.991664 + 0.0004587 * S;          // Beispiel-Dichtemodell, passt zur Spindel 0,999 bei 16 g/L
+  const brixOf = (S) => 6.615 + 0.07633 * S;             // Refraktometer inkl. Alkoholeinfluss, Beispielkalibrierung
+
+  const state = { T: 13, P: 2.5, bottle: "s750", Snow: sugarAt(NOW), delta: 2, mode: "brix", malo: false, malic: 2.0 };
+  const mal = () => (state.malo ? state.malic : 0);
+
+  const daysTo = (S, T, from = state.Snow) => (S >= from ? 0 : (tauOf(S) - tauOf(from)) / fT(T));
+  const pad = (n) => String(n).padStart(2, "0");
+  const q15 = (dt) => new Date(Math.round(dt.getTime() / 9e5) * 9e5);   // auf 15 min runden
+  const fmtDay = (dt) => { const r = q15(dt); return `${WD[r.getDay()]} ${pad(r.getDate())}.${pad(r.getMonth() + 1)}.`; };
+  const fmtHM = (dt) => { const r = q15(dt); return `${pad(r.getHours())}:${pad(r.getMinutes())}`; };
+  const roundHour = (dt) => { const r = new Date(dt.getTime() + 30 * 60e3); r.setMinutes(0, 0, 0); return r; };
+  const words = { 0.5: "einem halben Tag", 1: "einem Tag", 1.5: "anderthalb Tagen", 2: "zwei Tagen", 2.5: "zweieinhalb Tagen", 3: "drei Tagen", 3.5: "dreieinhalb Tagen", 4: "vier Tagen", 4.5: "viereinhalb Tagen", 5: "fünf Tagen", 5.5: "fünfeinhalb Tagen", 6: "sechs Tagen" };
+
+  function el(tag, attrs, parent, text) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function target() {
+    const b = BOTTLES[state.bottle];
+    return { mid: sugarFor(state.P, b, "mid", mal()), worst: sugarFor(state.P, b, "worst", mal()), mild: sugarFor(state.P, b, "mild", mal()), b };
+  }
+
+  function windowFor(Snow, delta, T, Sstar) {
+    const lo = Math.max(0.4, Sstar - delta);
+    return { start: daysTo(Sstar + delta, T, Snow), best: daysTo(Sstar, T, Snow), end: daysTo(lo, T, Snow), past: Snow < Sstar - delta };
+  }
+
+  /* ---------- Screen 1 ---------- */
+  function renderToday() {
+    const tg = target();
+    const T = state.T;
+    const w = windowFor(state.Snow, state.delta, T, tg.mid);
+    const best = dateAt(NOW + w.best);
+    const bestRef = windowFor(state.Snow, state.delta, TREF, tg.mid).best;
+
+    if (w.past) {
+      $("ans-day").textContent = "JETZT";
+      $("ans-time").textContent = "FENSTER VORBEI";
+      $("ans-window").textContent = `Ziel ${nf(tg.mid)} g/L, aktuell ${Math.round(state.Snow)} g/L`;
+      $("ans-say").textContent = `Der Restzucker liegt schon unter dem Ziel. Jetzt abgefüllt gibt das beim Öffnen etwa ${nf(gauge(state.Snow, 10, tg.b, "mid", mal()))}–${nf(gauge(state.Snow, 20, tg.b, "mid", mal()))} bar.`;
+    } else if (w.best <= 0.02) {
+      $("ans-day").textContent = "JETZT";
+      $("ans-time").textContent = `BIS ${fmtHM(dateAt(NOW + w.end)).replace(":", ".")} UHR`;
+      $("ans-window").textContent = `Fenster endet ${fmtDay(dateAt(NOW + w.end))} ${fmtHM(dateAt(NOW + w.end))}`;
+      $("ans-say").textContent = "Du bist im Fenster. Eine letzte Messung bestätigt es.";
+    } else {
+      $("ans-day").textContent = fmtDay(best).toUpperCase();
+      $("ans-time").textContent = `≈ ${roundHour(best).getHours()} UHR`;
+      $("ans-window").textContent = `Fenster ${fmtDay(dateAt(NOW + w.start))} ${fmtHM(dateAt(NOW + w.start))} – ${fmtDay(dateAt(NOW + w.end))} ${fmtHM(dateAt(NOW + w.end))}`;
+      const halfDays = Math.max(0.5, Math.round((w.best * 24) / 12) / 2);
+      let s = w.best * 24 < 30 ? `In etwa ${Math.round(w.best * 24)} Stunden.` : `In etwa ${words[halfDays] || nf(halfDays) + " Tagen"}.`;
+      const shift = (w.best - bestRef) * 24;
+      if (T < TREF) s += ` Bei ${T} °C gärt es langsamer, das Fenster rückt ${Math.round(shift)} Stunden nach hinten.`;
+      else if (T > TREF) s += ` Bei ${T} °C geht es ${Math.round(-shift)} Stunden schneller, das Fenster wird knapper.`;
+      else s += state.delta > 1 ? " Eine Messung morgen früh macht das Fenster enger." : " Deine letzte Messung hat das Fenster eingegrenzt.";
+      $("ans-say").textContent = s;
+    }
+
+    const hint = $("t-hint");
+    if (T !== TREF) {
+      const dC = Math.abs(kH(T) - kH(TREF));
+      const prod = Y * rateAt(tauOf(state.Snow)) * fT(T);
+      const h = Math.max(1, Math.round((dC / prod) * 24));
+      hint.textContent = T < TREF
+        ? `Nach dem Kühlen fallen die Blasen etwa ${h} h lang ab, weil der Wein CO₂ zurücklöst. Das ist kein Gärstopp.`
+        : `Beim Aufwärmen gast CO₂ aus. Die Blasen zeigen etwa ${h} h lang zu viel.`;
+      hint.hidden = false;
+    } else {
+      hint.hidden = true;
+    }
+
+    $("t-out").textContent = `${T} °C`;
+    $("v-sugar").textContent = `${Math.round(state.Snow)} ± ${nf(state.delta, state.delta % 1 ? 1 : 0)} g/L`;
+    $("v-abv").textContent = `${nf(abvOf(state.Snow))} % vol`;
+    const pnow = gauge(state.Snow, 20, tg.b, "mid", mal());
+    $("v-pnow").textContent = `${nf(pnow)} bar`;
+    $("row-now").classList.toggle("warn", pnow > state.P + 0.3);
+    $("v-target").textContent = `${nf(gauge(tg.mid, 10, tg.b, "mid", mal()))}–${nf(state.P)} bar`;
+    $("status").textContent = `Blasen ${Math.round(40 * rateAt(tauOf(state.Snow)) / rateAt(T50))}/min · Gärung ${nf(rateAt(tauOf(state.Snow)))} g/L am Tag · Spindel ${nf(sgOf(state.Snow), 3)} · ${nf(TREF + 0.1)} °C · vor 2 min`;
+
+    drawWindowBar(w);
+    drawChart(tg.mid);
+    renderDisplay(windowFor(state.Snow, state.delta, TREF, tg.mid));
+  }
+
+  function drawWindowBar(w) {
+    const svg = $("wbar");
+    svg.replaceChildren();
+    const D = 7, x0 = 14, x1 = 312, X = (d) => x0 + (Math.min(Math.max(d, 0), D) / D) * (x1 - x0);
+    el("line", { x1: x0, y1: 20, x2: x1, y2: 20, class: "axis" }, svg);
+    for (let m = 0.25; m <= D; m += 1) {                   // Mitternacht (jetzt = Fr 18:00)
+      el("line", { x1: X(m), y1: 13, x2: X(m), y2: 27, class: "tick" }, svg);
+      if (m + 0.5 <= D) el("text", { x: X(m + 0.5), y: 42, "text-anchor": "middle" }, svg, WD[dateAt(NOW + m + 0.5).getDay()]);
+    }
+    el("text", { x: x0, y: 42, "text-anchor": "middle", class: "nowlabel" }, svg, "jetzt");
+    el("rect", { x: x0 - 3.5, y: 16.5, width: 7, height: 7, class: "best" }, svg);
+    if (!w.past) {
+      const a = X(w.start), b = X(w.end);
+      el("rect", { x: a, y: 12, width: Math.max(3, b - a), height: 16, class: "band" }, svg);
+      el("rect", { x: X(w.best) - 5, y: 15, width: 10, height: 10, class: "best" }, svg);
+    }
+  }
+
+  function drawChart(Sstar) {
+    const svg = $("chart");
+    svg.replaceChildren();
+    const d0 = 7.5, d1 = 13.5, yMax = 40;
+    const L = 30, Rr = 312, Tp = 10, B = 150;
+    const X = (d) => L + ((d - d0) / (d1 - d0)) * (Rr - L);
+    const Yv = (s) => B - (Math.min(Math.max(s, 0), yMax) / yMax) * (B - Tp);
+    const T = state.T, f = fT(T), tau0 = tauOf(state.Snow);
+
+    for (let s = 0; s <= yMax; s += 10) {
+      el("line", { x1: L, y1: Yv(s), x2: Rr, y2: Yv(s), class: "grid" }, svg);
+      el("text", { x: L - 5, y: Yv(s) + 3, "text-anchor": "end" }, svg, String(s));
+    }
+    el("text", { x: L, y: 7 }, svg, "Restzucker g/L");
+
+    const lo = Math.max(0, Sstar - state.delta), hi = Sstar + state.delta;
+    el("rect", { x: X(NOW), y: Yv(hi), width: Rr - X(NOW), height: Yv(lo) - Yv(hi), class: "target" }, svg);
+    el("text", { x: Rr - 2, y: Yv(hi) - 3, "text-anchor": "end", class: "targetlabel" }, svg, `Ziel ≈ ${nf(Sstar)} g/L`);
+
+    const up = [], dn = [], fc = [];
+    for (let d = NOW; d <= d1 + 1e-9; d += 0.05) {
+      const s = sugarAt(tau0 + (d - NOW) * f);
+      const sig = state.delta + 0.35 * (d - NOW);
+      fc.push(`${X(d).toFixed(1)},${Yv(s).toFixed(1)}`);
+      up.push(`${X(d).toFixed(1)},${Yv(s + sig).toFixed(1)}`);
+      dn.unshift(`${X(d).toFixed(1)},${Yv(Math.max(0, s - sig)).toFixed(1)}`);
+    }
+    el("polygon", { points: up.concat(dn).join(" "), class: "cone" }, svg);
+    el("polyline", { points: fc.join(" "), class: "forecast" }, svg);
+
+    const meas = [];
+    for (let d = d0; d <= NOW + 1e-9; d += 0.05) {
+      const noise = 0.5 * Math.sin(d * 7.3) + 0.3 * Math.sin(d * 13.1);
+      const s = sugarAt(d) + noise + (d > NOW - 0.6 ? ((d - (NOW - 0.6)) / 0.6) * (state.Snow - sugarAt(NOW)) : 0);
+      meas.push(`${X(d).toFixed(1)},${Yv(s).toFixed(1)}`);
+    }
+    el("polyline", { points: meas.join(" "), class: "measured" }, svg);
+
+    const anchors = [[8.0, sugarAt(8.0)]];
+    if (state.delta < 2) anchors.push([NOW, state.Snow]);
+    for (const [d, s] of anchors) {
+      const x = X(d), y = Yv(s);
+      el("polygon", { points: `${x},${y - 5} ${x + 5},${y} ${x},${y + 5} ${x - 5},${y}`, class: "anchor" }, svg);
+    }
+
+    el("line", { x1: X(NOW), y1: Tp - 2, x2: X(NOW), y2: B, class: "nowline" }, svg);
+    el("text", { x: X(NOW) + 4, y: Tp + 8, class: "label-ink" }, svg, "jetzt");
+
+    for (let m = 8.25; m < d1; m += 1) {
+      el("line", { x1: X(m), y1: B, x2: X(m), y2: B + 4, class: "grid" }, svg);
+      if (m + 0.5 < d1) el("text", { x: X(m + 0.5), y: B + 13, "text-anchor": "middle" }, svg, WD[dateAt(m + 0.5).getDay()]);
+    }
+
+    const bTop = B + 20, bH = 22, rMax = rateAt(T50);
+    el("text", { x: L - 5, y: bTop + bH - 4, "text-anchor": "end" }, svg, "Bl.");
+    for (let d = d0; d < NOW; d += 1 / 12) {
+      const r = rateAt(d) / rMax * (1 + 0.08 * Math.sin(d * 21));
+      const h = Math.max(1, r * bH * 1.6);
+      el("rect", { x: X(d), y: bTop + bH - h, width: Math.max(1, X(d + 1 / 12) - X(d) - 1), height: h, class: "bubble" }, svg);
+    }
+  }
+
+  /* ---------- Screen 2 ---------- */
+  const MODES = {
+    brix: { unit: "°Bx", value: "7,7", help: "Probe entgast, Gerät mit Temperaturausgleich. Der Alkohol wird herausgerechnet.", toS: (v) => (v - 6.615) / 0.07633 },
+    oe:   { unit: "°Oe", value: "−1,8", help: "Hydrometer oder Dichtemeter, auf 20 °C bezogen. Unter 1,000 wird Oechsle negativ.", toS: (v) => (1 + v / 1000 - 0.991664) / 0.0004587 },
+    lab:  { unit: "g/L", value: "14", help: "Laborwert Restzucker (Glucose + Fructose).", toS: (v) => v }
+  };
+  let measured = null;
+  function renderMeasure() {
+    const mode = MODES[state.mode];
+    const raw = $("m-value").value.trim().replace(",", ".").replace("−", "-");
+    const v = parseFloat(raw);
+    const tg = target();
+    if (!isFinite(v)) {
+      measured = null;
+      $("m-sugar").textContent = "–"; $("m-abv").textContent = "–"; $("m-spindel").textContent = "–"; $("m-window").textContent = "–";
+      $("m-toast").textContent = "Bitte eine Zahl eingeben, z. B. 7,7.";
+      return;
+    }
+    const S = mode.toS(v);
+    if (S < 0 || S > 120) {
+      measured = null;
+      $("m-toast").textContent = "Der Wert passt nicht zu diesem Ansatz. Einheit prüfen?";
+      return;
+    }
+    measured = S;
+    $("m-toast").textContent = "";
+    const prev = Math.round(state.Snow);
+    $("m-sugar").innerHTML = `${Math.round(S)} g/L <small>war ${prev}</small>`;
+    $("m-abv").textContent = `${nf(abvOf(S))} % vol`;
+    const corr = (sgOf(S) - sgOf(state.Snow)) * 1000;
+    $("m-spindel").textContent = `${corr >= 0 ? "+" : "−"}${nf(Math.abs(corr))} °Oe`;
+    const w = windowFor(S, 0.8, state.T, tg.mid);
+    if (w.past) $("m-window").textContent = "vorbei";
+    else if (w.best <= 0.02) $("m-window").textContent = "jetzt";
+    else {
+      const a = q15(dateAt(NOW + w.start)), b = q15(dateAt(NOW + w.end));
+      $("m-window").textContent = a.getDate() === b.getDate()
+        ? `${WD[a.getDay()]} ${pad(a.getHours())}–${pad(b.getHours())} Uhr`
+        : `${WD[a.getDay()]} ${pad(a.getHours())} – ${WD[b.getDay()]} ${pad(b.getHours())} Uhr`;
+    }
+  }
+
+  document.querySelectorAll("[data-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.mode = btn.dataset.mode;
+      document.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      const m = MODES[state.mode];
+      $("m-unit").textContent = m.unit;
+      $("m-value").value = m.value;
+      $("m-help").textContent = m.help;
+      renderMeasure();
+    });
+  });
+  $("m-value").addEventListener("input", renderMeasure);
+  $("m-save").addEventListener("click", () => {
+    if (measured == null) return;
+    state.Snow = measured;
+    state.delta = 0.8;
+    renderToday();
+    renderMeasure();
+    $("m-toast").textContent = "Gespeichert. Der Screen „Heute“ rechnet jetzt mit deiner Messung.";
+  });
+  $("go-measure").addEventListener("click", () => {
+    $("measure").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+    $("m-value").focus({ preventScroll: true });
+  });
+
+  /* ---------- Screen 3 ---------- */
+  function renderTarget() {
+    const tg = target();
+    const P = state.P;
+    const p10 = gauge(tg.mid, 10, tg.b, "mid", mal());
+    $("p-big").textContent = `${nf(p10)}–${nf(P)} BAR`;
+    $("p-out").textContent = `${nf(P)} bar bei 20 °C`;
+    const cat = $("p-cat");
+    if (P <= 2.5) { cat.textContent = "frisante · Perlwein (1–2,5 bar bei 20 °C)"; cat.classList.remove("off"); }
+    else if (P >= 3) { cat.textContent = "espumante · Schaumwein (ab 3 bar bei 20 °C)"; cat.classList.remove("off"); }
+    else { cat.textContent = "2,5–3 bar: keine EU-Kategorie"; cat.classList.add("off"); }
+    $("p-sugar").innerHTML = `≈ ${nf(tg.mid)} g/L <small>(${nf(tg.worst)}–${nf(tg.mild)})</small>`;
+    $("p-10").textContent = `${nf(p10)} bar`;
+    $("p-20").textContent = `${nf(gauge(tg.mid, 20, tg.b, "mid", mal()))} bar`;
+    const worst = gauge(tg.mid, 20, tg.b, "worst", mal());
+    const ok = worst <= tg.b.limit;
+    $("p-limit").textContent = `${nf(worst)} / ${nf(tg.b.limit)} bar ${ok ? "✓" : "✕"}`;
+    $("row-limit").classList.toggle("warn", !ok);
+    $("malo-field").hidden = !state.malo;
+    $("p-malo").textContent = state.malo ? `−${nf(YM * state.malic / Y)} g/L Zucker` : "aus";
+  }
+
+  $("p-target").addEventListener("input", (e) => { state.P = parseFloat(e.target.value); renderTarget(); renderToday(); renderMeasure(); });
+  $("t-cellar").addEventListener("input", (e) => { state.T = parseInt(e.target.value, 10); renderToday(); renderMeasure(); });
+  document.querySelectorAll("[data-bottle]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.bottle = btn.dataset.bottle;
+      document.querySelectorAll("[data-bottle]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      renderTarget(); renderToday(); renderMeasure();
+    });
+  });
+  document.querySelectorAll("[data-malo]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.malo = btn.dataset.malo === "on";
+      document.querySelectorAll("[data-malo]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      renderTarget(); renderToday(); renderMeasure();
+    });
+  });
+  $("p-malic").addEventListener("input", (e) => {
+    const v = parseFloat(e.target.value.trim().replace(",", "."));
+    if (isFinite(v) && v >= 0 && v <= 8) { state.malic = v; renderTarget(); renderToday(); renderMeasure(); }
+  });
+
+  /* ---------- 5 · Display am Gärröhrchen ---------- */
+  // Zeigt den aktuellen Stand (heutige Kellertemperatur), nicht das Was-wäre-wenn des Reglers.
+  // DUB: grün > 3 Tage, gelb bis das Fenster öffnet, Koralle im Fenster, blinkend danach.
+  let dubDemo = "live", lastW = null;
+  const DEMO = {
+    ok:   { best: 4.4, start: 3.9,  past: false },
+    soon: { best: 1.8, start: 1.37, past: false },
+    now:  { best: 0.4, start: -0.2, past: false },
+    late: { best: 0,   start: -1,   past: true }
+  };
+  function renderDisplay(w) {
+    lastW = w;
+    const v = dubDemo === "live" ? w : DEMO[dubDemo];
+    $("a-bpm").textContent = String(Math.round(40 * rateAt(tauOf(state.Snow)) / rateAt(T50)));
+    const hrs = Math.max(0, Math.round(v.best * 24));
+    const dubEl = $("a-dub");
+    dubEl.innerHTML = `${Math.floor(hrs / 24)}<small>d</small> ${hrs % 24}<small>h</small>`;
+    dubEl.className = v.past ? "late" : v.start <= 0 ? "now" : v.best > 3 ? "ok" : "soon";
+    $("a-temp").textContent = `${nf(TREF + 0.1)}°`;
+  }
+  let lastFlash = -1e9, flashTimer = 0;
+  function blop() {
+    const now = performance.now();
+    if (now - lastFlash < 1200) return;                 // höchstens alle 1,2 s ein Logo
+    lastFlash = now;
+    $("atom-nums").hidden = true;
+    $("atom-logo").hidden = false;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { $("atom-logo").hidden = true; $("atom-nums").hidden = false; }, 300);
+  }
+  $("a-blop").addEventListener("click", blop);
+  document.querySelectorAll("[data-dub]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      dubDemo = btn.dataset.dub;
+      document.querySelectorAll("[data-dub]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      if (lastW) renderDisplay(lastW);
+    });
+  });
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const tick = () => { blop(); setTimeout(tick, 5000 * (0.6 + Math.random() * 0.8)); };   // etwa 12 BPM
+    setTimeout(tick, 2500);
+  }
+
+  /* ---------- Screen 4 · Charmat ---------- */
+  // Sollwert: CO2-Gehalt, der in der Flasche den Zieldruck bei 20 °C ergibt (+8 % Verlust beim isobaren Abfüllen),
+  // umgerechnet auf den Gleichgewichtsdruck bei Tanktemperatur. Kopfraum mit CO2 gespült angenommen.
+  const charm = { P: 2.5, T: 12, loss: 0.08, prv: 5.5, mode: "dry" };
+  const cTarget = () => (kH(20) * (charm.P + PATM)) / (1 - charm.loss);
+  const setpoint = (T) => cTarget() / kH(T) - PATM;
+  function renderCharmat() {
+    const pset = setpoint(charm.T);
+    const pist = Math.max(0, pset - 0.04);
+    $("c-big").textContent = `${nf(pset)} BAR`;
+    $("c-sub").textContent = `IST ${nf(pist)} BAR · VENTIL ZU`;
+    $("c-tout").textContent = `${nf(charm.P)} bar`;
+    $("c-Tout").textContent = `${charm.T} °C`;
+    $("c-say").textContent = `Das Ventil hält den Druck, der in der Flasche ${nf(charm.P)} bar bei 20 °C ergibt. Wird der Tank wärmer, steigt der Sollwert mit.`;
+    $("c-table").textContent = "Sollwert bei " + [8, 12, 15, 18].map((t) => `${t} °C ${nf(setpoint(t))}`).join(" · ") + " bar";
+    $("c-co2").textContent = `${nf(kH(charm.T) * (pist + PATM))} g/L`;
+    const ok = pset <= charm.prv - 0.3;
+    $("c-prv").textContent = `${nf(charm.prv)} bar mech. ${ok ? "✓" : "✕ zu knapp"}`;
+    $("c-prvrow").classList.toggle("warn", !ok);
+    $("c-mode").textContent = charm.mode === "dry"
+      ? "Die Hefe arbeitet bis trocken, das Ventil hält den CO₂-Gehalt. Danach kühlen, klären und isobar abfüllen."
+      : "Bei 8 g/L Restzucker auf −2 °C kühlen, das stoppt die Hefe. Laut Prognose am Mo 20.10. gegen 18 Uhr.";
+    drawCharmat(pset);
+  }
+  function drawCharmat(pset) {
+    const svg = $("c-chart");
+    svg.replaceChildren();
+    const L = 30, Rr = 312, Tp = 12, B = 128, h0 = -72, h1 = 0;
+    const yMax = Math.max(2, Math.ceil(pset + 0.6));
+    const X = (h) => L + ((h - h0) / (h1 - h0)) * (Rr - L);
+    const Yv = (p) => B - (Math.min(Math.max(p, 0), yMax) / yMax) * (B - Tp);
+    for (let p = 0; p <= yMax; p += 1) {
+      el("line", { x1: L, y1: Yv(p), x2: Rr, y2: Yv(p), class: "grid" }, svg);
+      el("text", { x: L - 5, y: Yv(p) + 3, "text-anchor": "end" }, svg, String(p));
+    }
+    el("text", { x: L, y: 7 }, svg, "Tankdruck bar");
+    el("line", { x1: L, y1: Yv(pset), x2: Rr, y2: Yv(pset), class: "setline" }, svg);
+    el("text", { x: Rr - 2, y: Yv(pset) - 4, "text-anchor": "end", class: "targetlabel" }, svg, `Soll ${nf(pset)}`);
+    // Ventil zu bis der Sollwert erreicht ist, danach Sägezahn mit kurzen Entlastungspulsen
+    const pts = [], vents = [];
+    const tReach = -46, period = 1.6;
+    for (let h = h0; h <= h1 + 1e-9; h += 0.25) {
+      let p;
+      if (h < -66) p = 0.02;
+      else if (h < tReach) { const x = (h + 66) / (tReach + 66); p = pset * (1 - Math.pow(1 - x, 1.6)); }
+      else { const ph = ((h - tReach) % period) / period; p = pset - 0.06 + 0.06 * ph; }
+      pts.push(`${X(h).toFixed(1)},${Yv(p).toFixed(1)}`);
+    }
+    for (let h = tReach + period; h < h1; h += period) vents.push(h);
+    el("polyline", { points: pts.join(" "), class: "measured" }, svg);
+    for (const h of vents) el("line", { x1: X(h), y1: B, x2: X(h), y2: B - 6, class: "vent" }, svg);
+    for (const [h, lab] of [[-72, "−72 h"], [-48, "−48 h"], [-24, "−24 h"], [0, "jetzt"]]) {
+      el("text", { x: X(h), y: B + 13, "text-anchor": h === -72 ? "start" : h === 0 ? "end" : "middle" }, svg, lab);
+    }
+    el("text", { x: L, y: B + 22 }, svg, "Striche: Ventil öffnet kurz");
+  }
+  $("c-target").addEventListener("input", (e) => { charm.P = parseFloat(e.target.value); renderCharmat(); });
+  $("c-temp").addEventListener("input", (e) => { charm.T = parseInt(e.target.value, 10); renderCharmat(); });
+  document.querySelectorAll("[data-cmode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      charm.mode = btn.dataset.cmode;
+      document.querySelectorAll("[data-cmode]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      renderCharmat();
+    });
+  });
+
+  renderTarget();
+  renderToday();
+  renderMeasure();
+  renderCharmat();
+})();
+</script>

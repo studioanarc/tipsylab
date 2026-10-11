@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# PlatformIO / Firmware
+.pio/
+firmware/secrets.ini
+firmware/backup/
+*.bin
+
+# ESPHome
+esphome/secrets.yaml
+esphome/.esphome/
+
+# macOS / Editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
