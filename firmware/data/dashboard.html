@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laboratoire Tresor - Fermentation Monitor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Laboratoire Tresor</h1>
+            <div class="nav-links">
+                <a href="/" class="active">Dashboard</a>
+                <a href="/config">Settings</a>
+            </div>
+        </header>
+
+        <div class="status-panel">
+            <div class="status-card">
+                <h3>Bubbles</h3>
+                <div class="status-grid">
+                    <div class="status-label">This minute:</div>
+                    <div class="status-value big" id="bubble-count">0</div>
+                    <div class="status-label">Last minute:</div>
+                    <div class="status-value" id="bubble-rate">-</div>
+                    <div class="status-label">Since boot:</div>
+                    <div class="status-value" id="total-bubbles">-</div>
+                    <div class="status-label">Next MQTT send:</div>
+                    <div class="status-value" id="next-send">-</div>
+                    <div class="status-label">Temperature 1:</div>
+                    <div class="status-value" id="temp1">-</div>
+                    <div class="status-label">Temperature 2:</div>
+                    <div class="status-value" id="temp2">-</div>
+                </div>
+            </div>
+
+            <div class="status-card">
+                <h3>Device</h3>
+                <div class="status-grid">
+                    <div class="status-label">WiFi:</div>
+                    <div class="status-value" id="wifi-status">-</div>
+                    <div class="status-label">MQTT:</div>
+                    <div class="status-value" id="mqtt-status">-</div>
+                    <div class="status-label">IP address:</div>
+                    <div class="status-value" id="ip-address">-</div>
+                    <div class="status-label">Hostname:</div>
+                    <div class="status-value" id="hostname">-</div>
+                    <div class="status-label">Device ID:</div>
+                    <div class="status-value" id="device-id">-</div>
+                    <div class="status-label">WiFi signal:</div>
+                    <div class="status-value" id="rssi">-</div>
+                    <div class="status-label">Firmware:</div>
+                    <div class="status-value" id="fw-version">-</div>
+                    <div class="status-label">Uptime:</div>
+                    <div class="status-value" id="uptime">-</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="chart-card">
+                <h3>Bubbles per minute (last hour)</h3>
+                <canvas id="bubble-chart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Temperature (last hour)</h3>
+                <canvas id="temp-chart"></canvas>
+            </div>
+        </div>
+
+        <div class="settings-card">
+            <h3>Detection</h3>
+            <div class="status-grid tuning">
+                <div class="status-label">Noise floor (idle):</div>
+                <div class="status-value" id="noise-floor">-</div>
+                <div class="status-label">Last bubble peak:</div>
+                <div class="status-value" id="last-peak">-</div>
+                <div class="status-label">Gyro sample rate:</div>
+                <div class="status-value" id="sample-rate">-</div>
+                <div class="status-label">Auto-calibration:</div>
+                <div class="status-value" id="autocal-status">-</div>
+            </div>
+            <p class="hint"><strong>Auto-calibrate</strong>: leave the device untouched for 10 s, then make blops for 20 s (tap the vessel or let the airlock work). Trigger and release are set between the noise peaks and the weakest blops and saved.</p>
+            <p class="hint">A blop is a sharp rise of the gyro signal above the trigger. Set the trigger clearly above the noise floor and below typical bubble peaks. The release level only ends an event for the diagnostics; the spacing is the shortest interval between two counted blops.</p>
+            <div class="settings-form">
+                <div class="form-group">
+                    <label for="gyro_threshold">Trigger threshold (°/s above baseline):</label>
+                    <input type="range" id="gyro_threshold" min="0.1" max="5.0" step="0.1" value="2.0">
+                    <span id="gyro_threshold_value">2.0</span>
+                </div>
+                <div class="form-group">
+                    <label for="min_activity_threshold">Release threshold (°/s):</label>
+                    <input type="range" id="min_activity_threshold" min="0.05" max="1.0" step="0.05" value="0.5">
+                    <span id="min_activity_threshold_value">0.5</span>
+                </div>
+                <div class="form-group">
+                    <label for="debounce_time">Min. spacing between blops (ms):</label>
+                    <input type="range" id="debounce_time" min="100" max="5000" step="10" value="150">
+                    <span id="debounce_time_value">150</span>
+                </div>
+                <button id="save-settings" class="btn-primary">Save settings</button>
+                <button id="autocal-btn" class="btn-secondary">Auto-calibrate</button>
+                <button id="calibrate-btn" class="btn-secondary">Relearn baseline</button>
+            </div>
+        </div>
+
+        <div id="status-message" class="hidden"></div>
+    </div>
+
+    <script src="chart.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
