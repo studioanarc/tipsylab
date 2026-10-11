@@ -8,6 +8,12 @@ Dieser Ordner (`Tipsy/tipsylab/`) ist als künftiges Projekt-Repo gedacht:
 - `tools/druckmodell.py`: rechnet alle Drucktabellen in diesem Plan nach (`python3 tools/druckmodell.py`)
 - `assets/logo-atoms3-128.png`: Logo fürs Display des AtomS3 (128 × 128, ohne Kreis), zum Hochladen über die Einstellungen der Firmware; `assets/logo-atoms3.svg` ist die Vorlage dazu
 
+**Stand der Umsetzung (11.10.2026):** Phase 1 ist programmiert (Integration mit Panel, Prognose Stufe 1, Druckmodell, Blueprints), dazu die Software aus Phase 2 und Phase 4 Stufe B: Firmware 2.1 (`firmware/`), ESPHome für Tank und Kellerluft (`esphome/`), das Shelly-Skript (`shelly/`). Überblick und Einrichten: `README.md`. Abweichungen vom Plan:
+- Charmat: Beim Abkühlen folgt der Sollwert verzögert (Nachführzeit, Standard 6 h). CO₂ löst sich erst über Stunden; ohne Verzögerung würde das Ventil ablassen, was im Wein bleiben soll. Das CO₂-Ziel geht als ESPHome-Zahl über die native API statt per MQTT.
+- Heizung: Das Shelly-Skript schaltet jedes Mal mit Rückfall-Timer ein; bleibt das Skript stehen, ist die Heizung nach zwei Minuten aus.
+- Firmware: Legacy-Topics sind nur bei neuen Geräten aus; ein aktualisiertes Gerät behält seine Einstellung.
+- Noch offen: Waage (HX711), Phase 3, Phase 5 und der Feed für die DataWein-Seite.
+
 **Rahmenbedingungen (von dir):**
 - Nur Pet Nat und Naturwein, kein Bier. Charmat als Option.
 - Kronkorken halten bei 330 ml locker 4,5 bar, bei 750 ml 6–7 bar. Lagerung bei 30 °C ist damit kein Problem. Relevant ist der **Druck beim Öffnen zwischen 10 und höchstens 20 °C**.
