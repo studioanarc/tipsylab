@@ -36,6 +36,8 @@ SOON = timedelta(hours=72)
 DECLINE_FRACTION = 0.5  # Prognose nur aus Punkten unter 50 % des Startzuckers
 FIT_HALF_LIFE = 1.0  # thermische Tage: jüngere Punkte zählen mehr (die Hefe ändert ihr Tempo)
 FIT_HORIZON = 4.0  # thermische Tage zurück
+FORECAST_TAIL = timedelta(hours=12)  # so weit reicht die Kurve über das Fensterende hinaus
+FORECAST_MAX = timedelta(days=10)
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,27 @@ def time_to_sugar(
     return None
 
 
+def project(
+    now: datetime,
+    s_now: float,
+    k: float,
+    settings: Settings,
+    temp_now: float | None,
+    until: datetime,
+    step: timedelta = timedelta(hours=1),
+) -> list[tuple[datetime, float]]:
+    """Zuckerverlauf ab jetzt bis `until`, gerechnet wie time_to_sugar (Temperaturplan inklusive)."""
+    out = [(now, s_now)]
+    step_days = step.total_seconds() / 86400.0
+    t, s = now, s_now
+    while t < until:
+        temp = settings.planned_temp(s, temp_now)
+        s *= math.exp(-k * thermal_factor(temp, settings.q10) * step_days)
+        t += step
+        out.append((t, s))
+    return out
+
+
 def observed_rate(points: list[tuple[datetime, float, float]], t_end: datetime, hours: float = 24.0) -> float | None:
     """Zuckerabbau (g/L pro Tag) über `hours` bis t_end, aus Medianen um Anfang und Ende."""
     span = timedelta(hours=hours)
@@ -259,8 +282,10 @@ class Estimate:
     spindle_offset: float | None = None
     bubble_g_l_per_bubble: float | None = None
     fit_k: float | None = None
+    fit_rel: float | None = None
     notes: list[str] = field(default_factory=list)
     series: list[tuple[datetime, float, float]] = field(default_factory=list)  # (t, S, σ) fürs Diagramm
+    forecast: list[tuple[datetime, float, float, float]] = field(default_factory=list)  # (t, S, oben, unten)
 
 
 def estimate(
@@ -278,6 +303,17 @@ def estimate(
     temp_now = temp_s.latest()[1] if temp_s else None
     grav = Series(gravity)
     bub = Series(bubbles)
+
+    # Ziel, Zieldruck und Flaschengrenze hängen nicht vom Jetzt-Wert ab
+    target = settings.target_sugar()
+    est.target_sugar = target
+    if settings.mode == "petnat":
+        b, mal = BOTTLES[settings.bottle], settings.malic()
+        est.p_target_10 = bottle_pressure(target, 10, b, FILL_MID, mal)
+        est.p_target_20 = bottle_pressure(target, 20, b, FILL_MID, mal)
+        est.p_worst_20 = bottle_pressure(target, 20, b, FILL_WORST, mal)
+        est.limit_ok = est.p_worst_20 <= b.limit_bar
+        est.category = eu_category(settings.target_bar_20c)
 
     anc = sorted([Anchor(start, model.s0, SIGMA["start"], "start")] + list(anchors or []), key=lambda a: a.t)
     anc = [a for a in anc if a.t <= now]
@@ -339,6 +375,7 @@ def estimate(
             fit = DecayFit(k=k, rel_err=0.5, n=len(recent))
             est.notes.append("Prognose aus dem linearen Trend, noch keine Kurvenanpassung")
     est.fit_k = fit.k if fit else None
+    est.fit_rel = fit.rel_err if fit else None
 
     # --- Jetzt-Wert -------------------------------------------------------------------------------
     cands: list[tuple[float, float]] = []
@@ -363,9 +400,7 @@ def estimate(
     est.series = sorted(points + [(now, s_now, sigma)], key=lambda p: p[0])
     est.planned_temp = settings.planned_temp(s_now, temp_now)
 
-    # --- Ziel, Fenster, Anzeige ---------------------------------------------------------------
-    target = settings.target_sugar()
-    est.target_sugar = target
+    # --- Fenster, Anzeige ----------------------------------------------------------------------
     if fit is not None:
         est.rate_g_l_day = fit.k * s_now * thermal_factor(temp_now, settings.q10)
         delta = max(1.0, math.sqrt(sigma**2 + 0.5**2))
@@ -373,6 +408,16 @@ def estimate(
         est.start = time_to_sugar(now, s_now, target + delta, fit.k * (1 + fit.rel_err), settings, temp_now)
         est.end = time_to_sugar(now, s_now, max(0.3, target - delta), fit.k * (1 - fit.rel_err), settings, temp_now)
         est.past = s_now < target - delta
+        # Kurve fürs Diagramm: Mitte, oben langsam (k·(1−rel)) + σ, unten schnell (k·(1+rel)) − σ
+        ends = [t for t in (est.best, est.end) if t is not None]
+        until = min(max(ends, default=now + timedelta(days=3)) + FORECAST_TAIL, now + FORECAST_MAX)
+        mid = project(now, s_now, fit.k, settings, temp_now, until)
+        slow = project(now, s_now, fit.k * (1 - fit.rel_err), settings, temp_now, until)
+        fast = project(now, s_now, fit.k * (1 + fit.rel_err), settings, temp_now, until)
+        est.forecast = [
+            (t, s, s_hi + sigma, max(0.0, s_lo - sigma))
+            for (t, s), (_, s_hi), (_, s_lo) in zip(mid, slow, fast)
+        ]
     if est.best is not None:
         est.dub_hours = max(0.0, (est.best - now).total_seconds() / 3600.0)
     still = settings.mode == "still"
@@ -388,11 +433,6 @@ def estimate(
         b, mal = BOTTLES[settings.bottle], settings.malic()
         est.p_now_10 = bottle_pressure(s_now, 10, b, FILL_MID, mal)
         est.p_now_20 = bottle_pressure(s_now, 20, b, FILL_MID, mal)
-        est.p_target_10 = bottle_pressure(target, 10, b, FILL_MID, mal)
-        est.p_target_20 = bottle_pressure(target, 20, b, FILL_MID, mal)
-        est.p_worst_20 = bottle_pressure(target, 20, b, FILL_WORST, mal)
-        est.limit_ok = est.p_worst_20 <= b.limit_bar
-        est.category = eu_category(settings.target_bar_20c)
 
     # --- Status -------------------------------------------------------------------------------
     if still and s_now <= settings.dry_sugar_g_l + 0.5:

@@ -115,3 +115,24 @@ def test_no_false_stuck_in_healthy_fermentation(seed):
     for d10 in range(20, 130, 5):
         est = run(sim, d10 / 10, Settings(target_bar_20c=2.5, temp_plan=PLAN), anchors_every=0.5, seed=seed)
         assert est.status != "stuck", d10 / 10
+
+
+def test_forecast_curve_matches_window(sim):
+    settings = Settings(target_bar_20c=2.5, temp_plan=PLAN)
+    est = run(sim, 9, settings)
+    assert est.forecast and est.forecast[0][0] == est.now
+    times = [p[0] for p in est.forecast]
+    assert times == sorted(times)
+    assert times[-1] >= est.end
+    for _, s, hi, lo in est.forecast:
+        assert lo <= s <= hi
+    mids = [p[1] for p in est.forecast]
+    assert all(b <= a for a, b in zip(mids, mids[1:]))
+    # Die Mittellinie kreuzt den Zielzucker dort, wo best liegt (± ein Rechenschritt)
+    crossing = next(t for t, s, _, _ in est.forecast if s <= est.target_sugar)
+    assert abs((crossing - est.best).total_seconds()) <= 3600
+
+
+def test_forecast_empty_without_fit(sim):
+    est = estimate(sim.model, Settings(), sim.start, sim.start + timedelta(days=2))
+    assert est.forecast == []

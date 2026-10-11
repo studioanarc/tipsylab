@@ -35,6 +35,31 @@ def test_old_firmware_without_boot_id():
     assert acc.add({"bubbles": 10**7, "total": 10**7}) == 0  # kaputtes Paket
 
 
+def test_long_outage_within_one_boot_is_counted():
+    acc = BubbleAccumulator()
+    acc.add({"bubbles": 200, "total": 1_000, "boot_id": "a", "seq": 1})
+    # zehn Stunden ohne MQTT bei 250 Blasen pro Minute: mehr als ein einzelnes Intervall je haben kann
+    assert acc.add({"bubbles": 250, "total": 151_000, "boot_id": "a", "seq": 601}) == 150_000
+
+
+def test_reboot_recovers_saved_counts():
+    acc = BubbleAccumulator()
+    acc.add({"bubbles": 10, "total": 10, "total_all": 5_010, "boot_id": "a", "seq": 1})
+    # WLAN weg, das Gerät zählt weiter und sichert bis 7.800, dann Stromausfall und Neustart
+    assert acc.add({"bubbles": 12, "total": 12, "total_all": 7_812, "boot_id": "b", "seq": 1}) == 12 + 2_790
+    assert acc.add({"bubbles": 8, "total": 20, "total_all": 7_820, "boot_id": "b", "seq": 2}) == 8
+
+
+def test_normal_reboot_does_not_double_count():
+    acc = BubbleAccumulator()
+    acc.add({"bubbles": 10, "total": 500, "total_all": 5_010, "boot_id": "a", "seq": 50})
+    # zuletzt vor 6 min gesichert (4.900): die Summe liegt nach dem Neustart erst unter dem letzten Wert
+    assert acc.add({"bubbles": 12, "total": 12, "total_all": 4_912, "boot_id": "b", "seq": 1}) == 12
+    assert acc.add({"bubbles": 8, "total": 20, "total_all": 4_920, "boot_id": "b", "seq": 2}) == 8
+    # Werksreset: gesicherte Summe von vorn
+    assert acc.add({"bubbles": 5, "total": 5, "total_all": 5, "boot_id": "c", "seq": 1}) == 5
+
+
 def test_accumulator_roundtrip():
     acc = BubbleAccumulator()
     acc.add({"bubbles": 3, "total": 3, "boot_id": "z", "seq": 1, "suppressed": 2})
