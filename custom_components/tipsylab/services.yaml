@@ -1,0 +1,115 @@
+add_measurement:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: tipsylab
+    kind:
+      required: true
+      selector:
+        select:
+          translation_key: measurement_kind
+          options: [brix, density, brix_density, sugar, malic, ph, bottle_pressure]
+    value:
+      required: true
+      selector:
+        number:
+          min: -50
+          max: 1500
+          step: 0.0001
+          mode: box
+    value2:
+      selector:
+        number:
+          min: 0
+          max: 1500
+          step: 0.0001
+          mode: box
+    unit:
+      selector:
+        select:
+          translation_key: density_unit
+          options: [sg, oe, baume, gcm3]
+    temperature:
+      selector:
+        number:
+          min: -5
+          max: 40
+          step: 0.1
+          unit_of_measurement: "°C"
+          mode: box
+    time:
+      selector:
+        datetime:
+    note:
+      selector:
+        text:
+add_event:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: tipsylab
+    kind:
+      required: true
+      selector:
+        select:
+          translation_key: event_kind
+          options: [racking, volume, cooling, heating, bottled, note]
+    value:
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 0.1
+          mode: box
+    note:
+      selector:
+        text:
+update_settings:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: tipsylab
+    target_bar_20c:
+      selector:
+        number: {min: 0.5, max: 6, step: 0.1, unit_of_measurement: bar, mode: box}
+    bottle:
+      selector:
+        select:
+          translation_key: bottle
+          options: ["750", "330"]
+    malo_in_bottle:
+      selector:
+        boolean:
+    malic_g_l:
+      selector:
+        number: {min: 0, max: 10, step: 0.1, unit_of_measurement: g/L, mode: box}
+    volume_l:
+      selector:
+        number: {min: 1, max: 100000, step: 1, unit_of_measurement: L, mode: box}
+    temp_start:
+      selector:
+        number: {min: 0, max: 30, step: 0.5, unit_of_measurement: "°C", mode: box}
+    temp_switch_sugar:
+      selector:
+        number: {min: 0, max: 250, step: 0.5, unit_of_measurement: g/L, mode: box}
+    temp_late:
+      selector:
+        number: {min: 0, max: 30, step: 0.5, unit_of_measurement: "°C", mode: box}
+    q10:
+      selector:
+        number: {min: 1.2, max: 4, step: 0.1, mode: box}
+    dry_sugar_g_l:
+      selector:
+        number: {min: 0, max: 10, step: 0.5, unit_of_measurement: g/L, mode: box}
+    filling_loss:
+      selector:
+        number: {min: 0, max: 0.5, step: 0.01, mode: box}
+    prv_bar:
+      selector:
+        number: {min: 0.5, max: 12, step: 0.1, unit_of_measurement: bar, mode: box}

@@ -1,0 +1,324 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "New batch",
+        "description": "Give the starting Brix or density of the must (not needed for Charmat).",
+        "data": {
+          "name": "Name",
+          "mode": "Mode",
+          "brix0": "Starting Brix (refractometer)",
+          "sg0": "Starting gravity (SG)",
+          "volume_l": "Volume",
+          "start": "Start of fermentation (empty = now)"
+        }
+      },
+      "sources": {
+        "title": "Sources",
+        "description": "All optional; you enter measurements later in the panel.",
+        "data": {
+          "bubble_device": "Bubble counter (device id, e.g. tipsy-a1b2c3)",
+          "gravity_entity": "Hydrometer: gravity sensor",
+          "gravity_unit": "Hydrometer unit",
+          "temperature_entity": "Wine temperature",
+          "heater_host": "Heater: Shelly address (IP)",
+          "pressure_entity": "Tank pressure",
+          "co2_target_entity": "CO₂ target on the controller (ESPHome number)"
+        }
+      },
+      "target": {
+        "title": "Target",
+        "data": {
+          "target_bar_20c": "Opening pressure at 20 °C",
+          "bottle": "Bottle",
+          "malo_in_bottle": "Count malolactic in the bottle",
+          "malic_g_l": "Malic acid at bottling",
+          "dry_sugar_g_l": "Dry below",
+          "prv_bar": "Safety valve opens at",
+          "filling_loss": "CO₂ loss in isobaric filling (fraction)",
+          "temp_start": "Temperature at start",
+          "temp_switch_sugar": "Switch at residual sugar",
+          "temp_late": "Temperature afterwards",
+          "q10": "Q10 (rate factor per 10 °C)"
+        },
+        "data_description": {
+          "target_bar_20c": "EU: semi-sparkling up to 2.5 bar, sparkling from 3 bar (at 20 °C).",
+          "malo_in_bottle": "On if malic acid remains at bottling: 0.7 g/L less sugar per g/L malic acid.",
+          "temp_switch_sugar": "E.g. 20 °C for malolactic, 14 °C from 25 g/L. Leave empty for no plan."
+        }
+      }
+    },
+    "error": {
+      "must_required": "Starting Brix or gravity is missing."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Target and temperature plan",
+        "data": {
+          "target_bar_20c": "Opening pressure at 20 °C",
+          "bottle": "Bottle",
+          "malo_in_bottle": "Count malolactic in the bottle",
+          "malic_g_l": "Malic acid at bottling",
+          "dry_sugar_g_l": "Dry below",
+          "prv_bar": "Safety valve opens at",
+          "filling_loss": "CO₂ loss in isobaric filling (fraction)",
+          "temp_start": "Temperature at start",
+          "temp_switch_sugar": "Switch at residual sugar",
+          "temp_late": "Temperature afterwards",
+          "q10": "Q10 (rate factor per 10 °C)"
+        },
+        "data_description": {
+          "target_bar_20c": "EU: semi-sparkling up to 2.5 bar, sparkling from 3 bar (at 20 °C).",
+          "malo_in_bottle": "On if malic acid remains at bottling: 0.7 g/L less sugar per g/L malic acid.",
+          "temp_switch_sugar": "E.g. 20 °C for malolactic, 14 °C from 25 g/L. Leave empty for no plan."
+        }
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "petnat": "Pet Nat",
+        "still": "Natural wine (still)",
+        "charmat": "Charmat"
+      }
+    },
+    "bottle": {
+      "options": {
+        "750": "750 ml · crown cap up to 6 bar",
+        "330": "330 ml · crown cap up to 4.5 bar"
+      }
+    },
+    "gravity_unit": {
+      "options": {
+        "sg": "SG",
+        "oe": "°Oechsle",
+        "plato": "°Plato (if the hydrometer sends it)"
+      }
+    },
+    "measurement_kind": {
+      "options": {
+        "brix": "Refractometer (°Bx)",
+        "density": "Density",
+        "brix_density": "Refractometer + density",
+        "sugar": "Residual sugar (lab, g/L)",
+        "malic": "Malic acid (g/L)",
+        "ph": "pH",
+        "bottle_pressure": "Bottle pressure (bar)"
+      }
+    },
+    "density_unit": {
+      "options": {
+        "sg": "SG",
+        "oe": "°Oechsle",
+        "baume": "°Baumé",
+        "gcm3": "g/cm³"
+      }
+    },
+    "event_kind": {
+      "options": {
+        "racking": "Racking",
+        "volume": "Volume changed",
+        "cooling": "Cooling",
+        "heating": "Heating",
+        "bottled": "Bottled",
+        "note": "Note"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "restzucker": {
+        "name": "Residual sugar"
+      },
+      "alkohol": {
+        "name": "Alcohol"
+      },
+      "gaergeschwindigkeit": {
+        "name": "Fermentation rate"
+      },
+      "zielzucker": {
+        "name": "Target sugar"
+      },
+      "dub": {
+        "name": "Time until bottling"
+      },
+      "abfuellen": {
+        "name": "Bottling"
+      },
+      "fenster_beginn": {
+        "name": "Window start"
+      },
+      "fenster_ende": {
+        "name": "Window end"
+      },
+      "druck_jetzt_10": {
+        "name": "Pressure if now (10 °C)"
+      },
+      "druck_jetzt_20": {
+        "name": "Pressure if now (20 °C)"
+      },
+      "solltemperatur": {
+        "name": "Target temperature"
+      },
+      "tank_sollwert": {
+        "name": "Tank set point"
+      },
+      "co2_ziel": {
+        "name": "CO₂ target"
+      },
+      "co2_geloest": {
+        "name": "Dissolved CO₂"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "waiting": "waiting for data",
+          "fermenting": "fermenting",
+          "approaching": "approaching",
+          "window": "in window",
+          "past": "window passed",
+          "dry": "dry",
+          "stuck": "stuck?",
+          "charmat": "Charmat control"
+        }
+      }
+    },
+    "binary_sensor": {
+      "im_fenster": {
+        "name": "In bottling window"
+      },
+      "messung_empfohlen": {
+        "name": "Measurement recommended"
+      },
+      "flaschengrenze": {
+        "name": "Bottle limit exceeded"
+      },
+      "sicherheitsabstand": {
+        "name": "Set point too close to safety valve"
+      }
+    }
+  },
+  "services": {
+    "add_measurement": {
+      "name": "Add measurement",
+      "description": "Refractometer, density, lab, malic acid, pH or bottle pressure.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Batch",
+          "description": ""
+        },
+        "kind": {
+          "name": "Kind",
+          "description": ""
+        },
+        "value": {
+          "name": "Value",
+          "description": "For refractometer + density: the Brix value."
+        },
+        "value2": {
+          "name": "Second value",
+          "description": "For refractometer + density: the density."
+        },
+        "unit": {
+          "name": "Density unit",
+          "description": ""
+        },
+        "temperature": {
+          "name": "Temperature",
+          "description": "For bottle pressure: bottle temperature."
+        },
+        "time": {
+          "name": "Time",
+          "description": "Empty = now."
+        },
+        "note": {
+          "name": "Note",
+          "description": ""
+        }
+      }
+    },
+    "add_event": {
+      "name": "Add event",
+      "description": "Racking, volume, cooling, heating, bottled or note.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Batch",
+          "description": ""
+        },
+        "kind": {
+          "name": "Kind",
+          "description": ""
+        },
+        "value": {
+          "name": "Value",
+          "description": "For volume: new volume in litres."
+        },
+        "note": {
+          "name": "Note",
+          "description": ""
+        }
+      }
+    },
+    "update_settings": {
+      "name": "Update settings",
+      "description": "Target, bottle, malolactic, volume and temperature plan of a batch.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Batch",
+          "description": ""
+        },
+        "target_bar_20c": {
+          "name": "Opening pressure at 20 °C",
+          "description": ""
+        },
+        "bottle": {
+          "name": "Bottle",
+          "description": ""
+        },
+        "malo_in_bottle": {
+          "name": "Count malolactic in the bottle",
+          "description": ""
+        },
+        "malic_g_l": {
+          "name": "Malic acid at bottling",
+          "description": ""
+        },
+        "dry_sugar_g_l": {
+          "name": "Dry below",
+          "description": ""
+        },
+        "prv_bar": {
+          "name": "Safety valve opens at",
+          "description": ""
+        },
+        "filling_loss": {
+          "name": "CO₂ loss in isobaric filling (fraction)",
+          "description": ""
+        },
+        "temp_start": {
+          "name": "Temperature at start",
+          "description": ""
+        },
+        "temp_switch_sugar": {
+          "name": "Switch at residual sugar",
+          "description": ""
+        },
+        "temp_late": {
+          "name": "Temperature afterwards",
+          "description": ""
+        },
+        "q10": {
+          "name": "Q10 (rate factor per 10 °C)",
+          "description": ""
+        },
+        "volume_l": {
+          "name": "Volume",
+          "description": ""
+        }
+      }
+    }
+  }
+}

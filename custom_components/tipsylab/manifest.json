@@ -1,0 +1,14 @@
+{
+  "domain": "tipsylab",
+  "name": "TIPSYLAB",
+  "after_dependencies": ["frontend", "http", "mqtt", "panel_custom"],
+  "codeowners": ["@studioanarc"],
+  "config_flow": true,
+  "dependencies": ["websocket_api"],
+  "documentation": "https://github.com/studioanarc/tipsylab",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/studioanarc/tipsylab/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

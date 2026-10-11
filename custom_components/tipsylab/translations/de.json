@@ -1,0 +1,324 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Neuer Ansatz",
+        "description": "Start-Brix oder Startdichte des Mosts angeben (bei Charmat nicht nötig).",
+        "data": {
+          "name": "Name",
+          "mode": "Betriebsart",
+          "brix0": "Start-Brix (Refraktometer)",
+          "sg0": "Startdichte (SG)",
+          "volume_l": "Volumen",
+          "start": "Gärbeginn (leer = jetzt)"
+        }
+      },
+      "sources": {
+        "title": "Quellen",
+        "description": "Alles optional; Messungen trägst du später im Panel ein.",
+        "data": {
+          "bubble_device": "Blasenzähler (Geräte-ID, z. B. tipsy-a1b2c3)",
+          "gravity_entity": "Spindel: Dichte-Sensor",
+          "gravity_unit": "Einheit der Spindel",
+          "temperature_entity": "Temperatur im Wein",
+          "heater_host": "Heizung: Shelly-Adresse (IP)",
+          "pressure_entity": "Tankdruck",
+          "co2_target_entity": "CO₂-Ziel am Regler (ESPHome-Zahl)"
+        }
+      },
+      "target": {
+        "title": "Ziel",
+        "data": {
+          "target_bar_20c": "Druck beim Öffnen bei 20 °C",
+          "bottle": "Flasche",
+          "malo_in_bottle": "Malo in der Flasche mitrechnen",
+          "malic_g_l": "Äpfelsäure beim Abfüllen",
+          "dry_sugar_g_l": "Trocken unter",
+          "prv_bar": "Sicherheitsventil öffnet bei",
+          "filling_loss": "CO₂-Verlust beim isobaren Abfüllen (Anteil)",
+          "temp_start": "Temperatur zu Beginn",
+          "temp_switch_sugar": "Umschalten ab Restzucker",
+          "temp_late": "Temperatur danach",
+          "q10": "Q10 (Temperaturfaktor je 10 °C)"
+        },
+        "data_description": {
+          "target_bar_20c": "EU: frisante/pétillant bis 2,5 bar, espumante/mousseux ab 3 bar (bei 20 °C).",
+          "malo_in_bottle": "An, wenn beim Abfüllen noch Äpfelsäure da ist: Pro g/L wird 0,7 g/L weniger Restzucker abgefüllt.",
+          "temp_switch_sugar": "Zum Beispiel 20 °C für die Malo, ab 25 g/L 14 °C. Leer lassen für keinen Plan."
+        }
+      }
+    },
+    "error": {
+      "must_required": "Start-Brix oder Startdichte fehlt."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ziel und Temperaturplan",
+        "data": {
+          "target_bar_20c": "Druck beim Öffnen bei 20 °C",
+          "bottle": "Flasche",
+          "malo_in_bottle": "Malo in der Flasche mitrechnen",
+          "malic_g_l": "Äpfelsäure beim Abfüllen",
+          "dry_sugar_g_l": "Trocken unter",
+          "prv_bar": "Sicherheitsventil öffnet bei",
+          "filling_loss": "CO₂-Verlust beim isobaren Abfüllen (Anteil)",
+          "temp_start": "Temperatur zu Beginn",
+          "temp_switch_sugar": "Umschalten ab Restzucker",
+          "temp_late": "Temperatur danach",
+          "q10": "Q10 (Temperaturfaktor je 10 °C)"
+        },
+        "data_description": {
+          "target_bar_20c": "EU: frisante/pétillant bis 2,5 bar, espumante/mousseux ab 3 bar (bei 20 °C).",
+          "malo_in_bottle": "An, wenn beim Abfüllen noch Äpfelsäure da ist: Pro g/L wird 0,7 g/L weniger Restzucker abgefüllt.",
+          "temp_switch_sugar": "Zum Beispiel 20 °C für die Malo, ab 25 g/L 14 °C. Leer lassen für keinen Plan."
+        }
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "petnat": "Pet Nat",
+        "still": "Naturwein (still)",
+        "charmat": "Charmat"
+      }
+    },
+    "bottle": {
+      "options": {
+        "750": "750 ml · Kronkorken bis 6 bar",
+        "330": "330 ml · Kronkorken bis 4,5 bar"
+      }
+    },
+    "gravity_unit": {
+      "options": {
+        "sg": "SG",
+        "oe": "°Oechsle",
+        "plato": "°Plato (falls die Spindel so sendet)"
+      }
+    },
+    "measurement_kind": {
+      "options": {
+        "brix": "Refraktometer (°Bx)",
+        "density": "Dichte",
+        "brix_density": "Refraktometer + Dichte",
+        "sugar": "Restzucker (Labor, g/L)",
+        "malic": "Äpfelsäure (g/L)",
+        "ph": "pH",
+        "bottle_pressure": "Flaschendruck (bar)"
+      }
+    },
+    "density_unit": {
+      "options": {
+        "sg": "SG",
+        "oe": "°Oechsle",
+        "baume": "°Baumé",
+        "gcm3": "g/cm³"
+      }
+    },
+    "event_kind": {
+      "options": {
+        "racking": "Abstich",
+        "volume": "Volumen geändert",
+        "cooling": "Kühlen",
+        "heating": "Heizen",
+        "bottled": "Abgefüllt",
+        "note": "Notiz"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "restzucker": {
+        "name": "Restzucker"
+      },
+      "alkohol": {
+        "name": "Alkohol"
+      },
+      "gaergeschwindigkeit": {
+        "name": "Gärgeschwindigkeit"
+      },
+      "zielzucker": {
+        "name": "Zielzucker"
+      },
+      "dub": {
+        "name": "Zeit bis zum Abfüllen"
+      },
+      "abfuellen": {
+        "name": "Abfüllen"
+      },
+      "fenster_beginn": {
+        "name": "Fenster Beginn"
+      },
+      "fenster_ende": {
+        "name": "Fenster Ende"
+      },
+      "druck_jetzt_10": {
+        "name": "Druck wenn jetzt (10 °C)"
+      },
+      "druck_jetzt_20": {
+        "name": "Druck wenn jetzt (20 °C)"
+      },
+      "solltemperatur": {
+        "name": "Solltemperatur"
+      },
+      "tank_sollwert": {
+        "name": "Tank-Sollwert"
+      },
+      "co2_ziel": {
+        "name": "CO₂-Ziel"
+      },
+      "co2_geloest": {
+        "name": "CO₂ gelöst"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "waiting": "wartet auf Daten",
+          "fermenting": "gärt",
+          "approaching": "nähert sich",
+          "window": "im Fenster",
+          "past": "Fenster vorbei",
+          "dry": "trocken",
+          "stuck": "stockt?",
+          "charmat": "Charmat-Regelung"
+        }
+      }
+    },
+    "binary_sensor": {
+      "im_fenster": {
+        "name": "Im Abfüllfenster"
+      },
+      "messung_empfohlen": {
+        "name": "Messung empfohlen"
+      },
+      "flaschengrenze": {
+        "name": "Flaschengrenze überschritten"
+      },
+      "sicherheitsabstand": {
+        "name": "Sollwert zu nah am Sicherheitsventil"
+      }
+    }
+  },
+  "services": {
+    "add_measurement": {
+      "name": "Messung eintragen",
+      "description": "Refraktometer, Dichte, Labor, Äpfelsäure, pH oder Flaschendruck.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Ansatz",
+          "description": ""
+        },
+        "kind": {
+          "name": "Art",
+          "description": ""
+        },
+        "value": {
+          "name": "Wert",
+          "description": "Bei Refraktometer + Dichte: der Brix-Wert."
+        },
+        "value2": {
+          "name": "Zweiter Wert",
+          "description": "Bei Refraktometer + Dichte: die Dichte."
+        },
+        "unit": {
+          "name": "Dichte-Einheit",
+          "description": ""
+        },
+        "temperature": {
+          "name": "Temperatur",
+          "description": "Bei Flaschendruck: Temperatur der Flasche."
+        },
+        "time": {
+          "name": "Zeitpunkt",
+          "description": "Leer = jetzt."
+        },
+        "note": {
+          "name": "Notiz",
+          "description": ""
+        }
+      }
+    },
+    "add_event": {
+      "name": "Ereignis eintragen",
+      "description": "Abstich, Volumen, Kühlen, Heizen, Abgefüllt oder Notiz.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Ansatz",
+          "description": ""
+        },
+        "kind": {
+          "name": "Art",
+          "description": ""
+        },
+        "value": {
+          "name": "Wert",
+          "description": "Bei Volumen: neues Volumen in Litern."
+        },
+        "note": {
+          "name": "Notiz",
+          "description": ""
+        }
+      }
+    },
+    "update_settings": {
+      "name": "Einstellungen ändern",
+      "description": "Ziel, Flasche, Malo, Volumen und Temperaturplan eines Ansatzes.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Ansatz",
+          "description": ""
+        },
+        "target_bar_20c": {
+          "name": "Druck beim Öffnen bei 20 °C",
+          "description": ""
+        },
+        "bottle": {
+          "name": "Flasche",
+          "description": ""
+        },
+        "malo_in_bottle": {
+          "name": "Malo in der Flasche mitrechnen",
+          "description": ""
+        },
+        "malic_g_l": {
+          "name": "Äpfelsäure beim Abfüllen",
+          "description": ""
+        },
+        "dry_sugar_g_l": {
+          "name": "Trocken unter",
+          "description": ""
+        },
+        "prv_bar": {
+          "name": "Sicherheitsventil öffnet bei",
+          "description": ""
+        },
+        "filling_loss": {
+          "name": "CO₂-Verlust beim isobaren Abfüllen (Anteil)",
+          "description": ""
+        },
+        "temp_start": {
+          "name": "Temperatur zu Beginn",
+          "description": ""
+        },
+        "temp_switch_sugar": {
+          "name": "Umschalten ab Restzucker",
+          "description": ""
+        },
+        "temp_late": {
+          "name": "Temperatur danach",
+          "description": ""
+        },
+        "q10": {
+          "name": "Q10 (Temperaturfaktor je 10 °C)",
+          "description": ""
+        },
+        "volume_l": {
+          "name": "Volumen",
+          "description": ""
+        }
+      }
+    }
+  }
+}
