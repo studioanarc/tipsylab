@@ -1,0 +1,447 @@
+# TIPSYLAB · Charmat-Tank: Druck halten, den die Flasche beim Öffnen haben soll (PLAN 3.9).
+#
+# Hardware: M5 AtomS3, ADS1115 am Grove-Port (I²C), vorhandener Drucktransmitter im Gasraum,
+# DS18B20 in einer Tauchhülse im Wein, stromlos geschlossenes, direktgesteuertes 12-V-Magnetventil
+# über Logik-MOSFET mit Freilaufdiode. Ein mechanisches Sicherheitsventil unter der Zulassung des
+# Tanks ist Pflicht; diese Regelung ersetzt es nie.
+#
+# Home Assistant schickt nur das CO₂-Ziel (number "CO₂-Ziel", g/L). Den Sollwert für die aktuelle
+# Tanktemperatur rechnet das Gerät selbst und regelt weiter, wenn WLAN oder Home Assistant fehlen.
+# Wird der Tank kälter, löst sich CO₂ erst über Stunden; der Sollwert sinkt deshalb verzögert nach
+# ("Nachführzeit"), sonst würde das Ventil CO₂ ablassen, das im Wein bleiben soll.
+#
+# Verdrahtung (Pins prüfen, bevor Strom drauf kommt):
+#   Grove  G2 = SDA, G1 = SCL, 5 V, GND  -> ADS1115 mit 3,3 V versorgen (Pull-ups auf 3,3 V!)
+#   Drucktransmitter 0,5–4,5 V an 5 V    -> Spannungsteiler 10 kΩ / 20 kΩ -> ADS1115 A0 (max. 3,0 V)
+#   G6 -> DS18B20 Daten (4,7 kΩ nach 3,3 V)
+#   G5 -> 220 Ω -> Gate MOSFET (100 kΩ Gate nach GND), Ventil an 12 V, Freilaufdiode parallel
+#   Display (eingebaut): BAR = Ist-Druck, darunter Sollwert und Weintemperatur
+#
+# Einrichten: secrets.yaml.example nach secrets.yaml kopieren, dann
+#   esphome run tipsy-tank.yaml
+
+substitutions:
+  name: tipsy-tank-03
+  friendly_name: Tank 03
+  # Drucktransmitter: Spannung bei 0 bar und bei Vollausschlag, Messbereich
+  sensor_v_min: "0.5"
+  sensor_v_max: "4.5"
+  sensor_p_max: "10.0"     # bar Überdruck bei sensor_v_max
+  divider: "1.5"           # Teiler 10 kΩ / 20 kΩ: Sensorspannung = ADC-Spannung × 1,5
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  comment: TIPSYLAB Charmat-Druckregelung
+  project:
+    name: studioanarc.tipsylab-tank
+    version: "0.1.0"
+
+esp32:
+  board: m5stack-atoms3
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    encryption: {}                   # Uploads mit dem API-Schlüssel, kein eigenes Passwort
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: ${name}
+    password: !secret ap_password
+
+captive_portal:
+
+i2c:
+  sda: GPIO2
+  scl: GPIO1
+  frequency: 400kHz
+
+spi:
+  clk_pin: GPIO17
+  mosi_pin: GPIO21
+
+ads1115:
+  - address: 0x48
+
+one_wire:
+  - platform: gpio
+    pin: GPIO6
+
+globals:
+  - id: letzter_puls
+    type: uint32_t
+    initial_value: "0"
+  - id: p_vor_puls
+    type: float
+    initial_value: "NAN"
+  - id: pulse_ohne_wirkung
+    type: int
+    initial_value: "0"
+  - id: sollwert
+    type: float
+    initial_value: "NAN"
+  - id: spuelen_seit
+    type: uint32_t
+    initial_value: "0"
+  - id: leck_p
+    type: float
+    initial_value: "NAN"
+  - id: leck_t
+    type: float
+    initial_value: "NAN"
+  - id: leck_pulse
+    type: uint32_t
+    initial_value: "0"
+  - id: pulse_gesamt                # nicht im Flash gesichert; Home Assistant zählt über Neustarts weiter
+    type: uint32_t
+    initial_value: "0"
+
+output:
+  - platform: gpio
+    pin: GPIO5
+    id: ventil_ausgang
+  - platform: ledc
+    pin: GPIO16
+    id: display_licht
+
+light:
+  - platform: monochromatic
+    output: display_licht
+    name: Display
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+
+color:
+  - id: tinte
+    hex: 2b2c78
+  - id: papier
+    hex: f9e3e7
+  - id: gedimmt
+    hex: 8e8fc4
+  - id: koralle
+    hex: ff8466
+
+font:
+  - file: "gfonts://JetBrains Mono@700"
+    id: gross
+    size: 30
+    glyphs: "0123456789,-°"
+    bpp: 4
+  - file: "gfonts://JetBrains Mono@700"
+    id: klein
+    size: 13
+    glyphs: " 0123456789,-°ABLORSTU"
+    bpp: 4
+
+# Eingebautes Display des AtomS3 (GC9107). Am Gerät nicht geprüft: Ist das Bild verschoben,
+# offset_height auf 0 setzen; sind die Farben vertauscht, invert_colors umschalten.
+display:
+  - platform: mipi_spi
+    model: GC9107
+    cs_pin: GPIO15
+    dc_pin: GPIO33
+    reset_pin: GPIO34
+    dimensions:
+      width: 128
+      height: 128
+      offset_height: 32
+    invert_colors: false
+    update_interval: 1s
+    lambda: |-
+      auto komma = [](char *s) { for (; *s; s++) if (*s == '.') *s = ','; };
+      char buf[16];
+      it.fill(id(tinte));
+      const float p = id(p_tank).state;
+      const bool alarm = id(alarm_ueberdruck).state || id(alarm_sensor).state || id(alarm_leck).state;
+      if (isnan(p)) snprintf(buf, sizeof(buf), "--"); else { snprintf(buf, sizeof(buf), "%.2f", p); komma(buf); }
+      it.print(5, 40, id(gross), alarm ? id(koralle) : id(papier), TextAlign::BASELINE_LEFT, buf);
+      it.print(124, 40, id(klein), id(gedimmt), TextAlign::BASELINE_RIGHT, "BAR");
+      if (isnan(id(sollwert))) snprintf(buf, sizeof(buf), "--"); else { snprintf(buf, sizeof(buf), "%.2f", id(sollwert)); komma(buf); }
+      it.print(5, 78, id(gross), id(papier), TextAlign::BASELINE_LEFT, buf);
+      it.print(124, 78, id(klein), id(gedimmt), TextAlign::BASELINE_RIGHT, "SOLL");
+      const float t = id(t_wein).state;
+      if (isnan(t)) snprintf(buf, sizeof(buf), "--°"); else { snprintf(buf, sizeof(buf), "%.1f°", t); komma(buf); }
+      it.print(5, 120, id(gross), id(papier), TextAlign::BASELINE_LEFT, buf);
+      if (id(ventil).state) it.filled_rectangle(119, 50, 6, 6, id(papier));           // Ventil offen
+      if (!id(regelung).state) it.print(124, 120, id(klein), id(koralle), TextAlign::BASELINE_RIGHT, "AUS");
+      if (alarm) it.filled_rectangle(119, 3, 6, 6, id(koralle));
+
+switch:
+  # Das Ventil selbst ist nicht von außen schaltbar: nur Regelkreis, Puls-Knopf und Spülen öffnen es.
+  - platform: output
+    output: ventil_ausgang
+    id: ventil
+    internal: true
+    restore_mode: ALWAYS_OFF
+  - platform: template
+    id: regelung
+    name: Regelung
+    icon: mdi:valve
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_off_action:
+      - switch.turn_off: ventil
+  - platform: template
+    id: spuelen
+    name: Kopfraum spülen
+    icon: mdi:weather-windy
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: id(spuelen_seit) = millis();
+      - switch.turn_on: ventil
+    turn_off_action:
+      - switch.turn_off: ventil
+
+script:
+  - id: puls                         # Ventil kurz öffnen, ohne die Schleife zu blockieren
+    mode: single
+    then:
+      - switch.turn_on: ventil
+      - delay: !lambda return (uint32_t) id(pulsdauer).state;
+      - switch.turn_off: ventil
+
+number:
+  - platform: template
+    id: co2_ziel
+    name: CO₂-Ziel
+    icon: mdi:molecule-co2
+    unit_of_measurement: g/L
+    min_value: 2.0
+    max_value: 12.0
+    step: 0.01
+    initial_value: 5.48              # 2,5 bar beim Öffnen bei 20 °C, 8 % Verlust beim Abfüllen
+    optimistic: true
+    restore_value: true
+    mode: box
+  - platform: template
+    id: sicherheitsventil
+    name: Sicherheitsventil öffnet bei
+    icon: mdi:shield-alert-outline
+    entity_category: config
+    unit_of_measurement: bar
+    min_value: 1.0
+    max_value: 12.0
+    step: 0.1
+    initial_value: 5.5
+    optimistic: true
+    restore_value: true
+    mode: box
+  - platform: template
+    id: hysterese
+    name: Hysterese
+    entity_category: config
+    unit_of_measurement: bar
+    min_value: 0.02
+    max_value: 0.3
+    step: 0.01
+    initial_value: 0.05
+    optimistic: true
+    restore_value: true
+    mode: box
+  - platform: template
+    id: pulsdauer
+    name: Pulsdauer
+    entity_category: config
+    unit_of_measurement: ms
+    min_value: 50
+    max_value: 500                   # länger nicht: sonst steigt Schaum ins Ventil
+    step: 10
+    initial_value: 200
+    optimistic: true
+    restore_value: true
+    mode: box
+  - platform: template
+    id: nachfuehrzeit
+    name: Nachführzeit beim Abkühlen
+    icon: mdi:timer-sand
+    entity_category: config
+    unit_of_measurement: h
+    min_value: 0.5
+    max_value: 24
+    step: 0.5
+    initial_value: 6
+    optimistic: true
+    restore_value: true
+    mode: box
+  - platform: template
+    id: pulsabstand
+    name: Pulsabstand
+    entity_category: config
+    unit_of_measurement: s
+    min_value: 2
+    max_value: 120
+    step: 1
+    initial_value: 10
+    optimistic: true
+    restore_value: true
+    mode: box
+
+button:
+  - platform: template
+    name: Ventil kurz öffnen
+    icon: mdi:valve-open
+    on_press:
+      - if:
+          condition:
+            switch.is_off: spuelen
+          then:
+            - script.execute: puls
+  - platform: restart
+    name: Neustart
+    entity_category: diagnostic
+
+sensor:
+  - platform: ads1115
+    multiplexer: A0_GND
+    gain: 4.096
+    id: sensor_spannung
+    name: Drucksensor Spannung
+    entity_category: diagnostic
+    unit_of_measurement: V
+    accuracy_decimals: 3
+    update_interval: 500ms
+    filters:
+      - multiply: ${divider}
+      - sliding_window_moving_average:
+          window_size: 4
+          send_every: 2
+  # Schnell und intern für den Regelkreis
+  - platform: template
+    id: p_tank
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      const float v = id(sensor_spannung).state;
+      if (isnan(v) || v < ${sensor_v_min} - 0.2f || v > ${sensor_v_max} + 0.2f) return NAN;  // Kabelbruch, Kurzschluss
+      return (v - ${sensor_v_min}) / (${sensor_v_max} - ${sensor_v_min}) * ${sensor_p_max};
+  # Ruhiger für Home Assistant
+  - platform: template
+    name: Tankdruck
+    id: p_tank_ha
+    unit_of_measurement: bar
+    device_class: pressure
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 10s
+    lambda: return id(p_tank).state;
+  - platform: dallas_temp
+    id: t_wein
+    name: Weintemperatur
+    accuracy_decimals: 1
+    update_interval: 10s
+  - platform: template
+    name: Sollwert
+    id: sollwert_ha
+    icon: mdi:target
+    unit_of_measurement: bar
+    device_class: pressure
+    accuracy_decimals: 2
+    update_interval: 10s
+    lambda: return id(sollwert);
+  - platform: template
+    name: Ventilpulse
+    icon: mdi:counter
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: return (float) id(pulse_gesamt);
+
+binary_sensor:
+  - platform: template
+    name: Ventil offen
+    device_class: opening
+    lambda: return id(ventil).state;
+  - platform: template
+    name: Überdruck
+    id: alarm_ueberdruck
+    device_class: problem
+    lambda: |-
+      const float p = id(p_tank).state;
+      return !isnan(p) && !isnan(id(sollwert)) && p > id(sollwert) + 0.3f;
+    filters:
+      - delayed_on: 60s
+  - platform: template
+    name: Sensorfehler
+    id: alarm_sensor
+    device_class: problem
+    lambda: return isnan(id(p_tank).state) || isnan(id(t_wein).state);
+    filters:
+      - delayed_on: 10s
+  - platform: template
+    name: Ventil ohne Wirkung
+    device_class: problem
+    lambda: return id(pulse_ohne_wirkung) >= 3;
+  - platform: template              # ohne lambda: setzt nur das Leck-Intervall unten
+    name: Leck
+    id: alarm_leck
+    device_class: problem
+
+interval:
+  # Regelkreis: Sollwert aus CO₂-Ziel und Weintemperatur (Henry nach Liger-Belair 2013)
+  - interval: 2s
+    then:
+      - lambda: |-
+          const float t = id(t_wein).state;
+          const float p = id(p_tank).state;
+          const float grenze = id(sicherheitsventil).state - 0.3f;     // nie näher als 0,3 bar an das Sicherheitsventil
+          if (!isnan(t)) {
+            const float tk = t + 273.15f;
+            const float kh = 1.21f * expf(24800.0f / 8.314f * (1.0f / tk - 1.0f / 298.15f));
+            const float soll = fminf(id(co2_ziel).state / kh - 1.013f, grenze);
+            if (isnan(id(sollwert)) || soll >= id(sollwert)) id(sollwert) = soll;   // wärmer: sofort
+            else id(sollwert) += (soll - id(sollwert)) * 2.0f / (id(nachfuehrzeit).state * 3600.0f);  // kälter: langsam
+          }
+          if (!isnan(id(sollwert)) && id(sollwert) > grenze) id(sollwert) = grenze;
+          if (id(spuelen).state) {
+            if (millis() - id(spuelen_seit) > 24UL * 3600UL * 1000UL) id(spuelen).turn_off();  // höchstens einen Tag
+            return;
+          }
+          if (!id(regelung).state) return;
+          if (isnan(p) || isnan(id(sollwert))) { id(ventil).turn_off(); return; }   // Sensorfehler: zu lassen
+          // Wirkung des letzten Pulses: der Druck muss gefallen sein
+          if (!isnan(id(p_vor_puls)) && millis() - id(letzter_puls) > 3000) {
+            if (p >= id(p_vor_puls) - 0.005f) id(pulse_ohne_wirkung) += 1;
+            else id(pulse_ohne_wirkung) = 0;
+            id(p_vor_puls) = NAN;
+          }
+          if (p > id(sollwert) + id(hysterese).state &&
+              millis() - id(letzter_puls) > (uint32_t) (id(pulsabstand).state * 1000.0f)) {
+            id(p_vor_puls) = p;
+            id(letzter_puls) = millis();
+            id(pulse_gesamt) += 1;
+            id(puls).execute();
+          }
+  # Leck: Druck fällt in 30 Minuten um mehr als 0,1 bar, ohne Ventilpuls und ohne Abkühlen
+  - interval: 30min
+    then:
+      - lambda: |-
+          const float p = id(p_tank).state, t = id(t_wein).state;
+          bool leck = false;
+          if (!isnan(p) && !isnan(t) && !isnan(id(leck_p)) && !id(spuelen).state &&
+              id(pulse_gesamt) == id(leck_pulse) && fabsf(t - id(leck_t)) < 0.3f) {
+            leck = id(leck_p) - p > 0.1f;
+          }
+          id(alarm_leck).publish_state(leck);
+          id(leck_p) = p;
+          id(leck_t) = t;
+          id(leck_pulse) = id(pulse_gesamt);
+
+text_sensor:
+  - platform: version
+    name: ESPHome-Version
+    hide_timestamp: true
+  - platform: wifi_info
+    ip_address:
+      name: IP-Adresse

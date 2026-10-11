@@ -1,0 +1,75 @@
+blueprint:
+  name: TIPSYLAB · Abfüllfenster aufs Handy
+  description: >-
+    Meldet, wenn sich der Status eines Ansatzes ändert: Fenster in Sicht (3 Tage oder weniger),
+    Fenster offen, Fenster vorbei, Gärung stockt oder Naturwein trocken.
+  domain: automation
+  source_url: https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/abfuellfenster.yaml
+  input:
+    status:
+      name: Status des Ansatzes
+      description: Der Sensor „Status“ eines TIPSYLAB-Ansatzes.
+      selector:
+        entity:
+          filter:
+            - integration: tipsylab
+              domain: sensor
+    handy:
+      name: Handy
+      description: Gerät mit der Home-Assistant-App.
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    zustaende:
+      name: Melden bei
+      default: [approaching, window, past, stuck, dry]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Fenster in Sicht (3 Tage oder weniger)
+              value: approaching
+            - label: Fenster offen
+              value: window
+            - label: Fenster vorbei
+              value: past
+            - label: Gärung stockt?
+              value: stuck
+            - label: Naturwein trocken
+              value: dry
+
+mode: queued
+
+triggers:
+  - trigger: state
+    entity_id: !input status
+    not_from: [unknown, unavailable]
+
+variables:
+  zustaende: !input zustaende
+  neu: "{{ trigger.to_state.state }}"
+  ansatz: "{{ device_attr(device_id(trigger.entity_id), 'name') or trigger.to_state.name }}"
+  dub: >-
+    {% set ns = namespace(v='') %}
+    {% for e in device_entities(device_id(trigger.entity_id)) %}
+      {% if state_attr(e, 'anzeige') %}{% set ns.v = state_attr(e, 'anzeige') %}{% endif %}
+    {% endfor %}
+    {{ ns.v }}
+
+conditions:
+  - condition: template
+    value_template: "{{ neu in zustaende and neu != trigger.from_state.state }}"
+
+actions:
+  - domain: mobile_app
+    type: notify
+    device_id: !input handy
+    title: "{{ ansatz }}"
+    message: >-
+      {% if neu == 'approaching' %}Abfüllen in etwa {{ dub }}. Flaschen und Kronkorken bereitlegen, täglich messen.
+      {% elif neu == 'window' %}Das Abfüllfenster ist offen. Eine letzte Messung bestätigt es.
+      {% elif neu == 'past' %}Das Fenster ist vorbei. Jetzt abfüllen; der Druck wird niedriger als geplant.
+      {% elif neu == 'stuck' %}Gärung stockt? Der Zucker fällt kaum, ohne dass es kühler wurde. Bitte messen.
+      {% elif neu == 'dry' %}Laut Schätzung trocken. Eine Messung bestätigt es.
+      {% else %}Status: {{ neu }}{% endif %}

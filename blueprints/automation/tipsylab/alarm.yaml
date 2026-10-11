@@ -1,0 +1,48 @@
+blueprint:
+  name: TIPSYLAB · Alarm aufs Handy
+  description: >-
+    Meldet Problem-Sensoren sofort: CO₂ in der Kellerluft, Überdruck, Sensorfehler, Leck oder
+    Ventil ohne Wirkung am Charmat-Tank, Flaschengrenze überschritten.
+  domain: automation
+  source_url: https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/alarm.yaml
+  input:
+    sensoren:
+      name: Alarm-Sensoren
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: binary_sensor
+    handy:
+      name: Handy
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    dauer:
+      name: Erst melden nach
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 30
+          unit_of_measurement: min
+
+mode: queued
+
+triggers:
+  - trigger: state
+    entity_id: !input sensoren
+    from: "off"
+    to: "on"
+    for:
+      minutes: !input dauer
+
+actions:
+  - domain: mobile_app
+    type: notify
+    device_id: !input handy
+    title: "TIPSYLAB: {{ trigger.to_state.name }}"
+    message: >-
+      {{ trigger.to_state.name }} seit {{ as_local(trigger.to_state.last_changed).strftime('%H:%M') }} Uhr.
+      Das mechanische Sicherheitsventil bleibt die letzte Sicherung.
