@@ -19,3 +19,6 @@ esphome/.esphome/
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
+
+# Panel-Vorschau: erzeugte Daten
+tools/panel-vorschau/*.json
