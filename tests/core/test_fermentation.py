@@ -1,17 +1,17 @@
 """Gärschätzung und Prognose gegen den Simulator (bekannte Wahrheit)."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import random
 
 import pytest
 from simulator import SimConfig, simulate
 
-from core.fermentation import Anchor, Settings, estimate
+from core.fermentation import Anchor, Settings, estimate, remove_steps
 
 PLAN = ((None, 17.0), (30.0, 12.0))
 
 
-def run(sim, day, settings, spindle=True, bubbles=True, anchors_every=1.0, seed=1):
+def run(sim, day, settings, spindle=True, bubbles=True, anchors_every=1.0, seed=1, weight=False):
     rng = random.Random(seed)
     now = sim.start + timedelta(days=day)
     anchors = []
@@ -31,6 +31,7 @@ def run(sim, day, settings, spindle=True, bubbles=True, anchors_every=1.0, seed=
         upto(sim.gravity) if spindle else None,
         upto(sim.bubbles) if bubbles else None,
         upto(sim.temps),
+        upto(sim.weight) if weight else None,
     )
 
 
@@ -136,3 +137,72 @@ def test_forecast_curve_matches_window(sim):
 def test_forecast_empty_without_fit(sim):
     est = estimate(sim.model, Settings(), sim.start, sim.start + timedelta(days=2))
     assert est.forecast == []
+
+
+# --- Waage ---------------------------------------------------------------------------------------
+
+def test_remove_steps_takes_out_a_sample():
+    t0 = datetime(2026, 10, 1)
+    pts = [(t0 + timedelta(minutes=15 * i), 70.0 - 0.001 * i) for i in range(20)]
+    pts = pts[:10] + [(t, v - 0.25) for t, v in pts[10:]]  # 250 mL Probe nach dem zehnten Wert
+    cleaned, steps = remove_steps(pts, max_kg_per_min=0.0005, noise_kg=0.002)
+    assert steps == 1
+    # der Sprung nimmt die Gärung dieses einen Intervalls (1 g) mit heraus
+    assert cleaned[-1][1] == pytest.approx(70.0 - 0.019 + 0.001, abs=1e-9)
+
+
+@pytest.mark.parametrize("day", [6, 8, 10])
+def test_weight_alone_tracks_sugar_from_volume(day):
+    sim = simulate(SimConfig())  # 50-L-Ballon auf einer Plattformwaage
+    est = run(sim, day, Settings(temp_plan=PLAN, volume_l=50.0), spindle=False, bubbles=False,
+              anchors_every=99, weight=True)
+    assert est.weight_g_l_per_kg == pytest.approx(1000 / (0.47 * 50), rel=1e-9)
+    assert not est.weight_calibrated
+    assert est.sugar == pytest.approx(sim.sugar_at(sim.start + timedelta(days=day)), abs=3.0)
+
+
+def test_weight_alone_finds_the_window():
+    # Ohne jede Messung, nur Volumen und Waage. Die Prognose der Stufe 1 liegt in der Simulation
+    # bei allen Quellen etwas spät (Phase 3 im Plan); hier kommt der Startwert des Mosts dazu.
+    sim = simulate(SimConfig())
+    settings = Settings(target_bar_20c=2.5, temp_plan=PLAN, volume_l=50.0)
+    est = run(sim, 9.5, settings, spindle=False, bubbles=False, anchors_every=99, weight=True)
+    truth = sim.crossing(settings.target_sugar())
+    assert est.best is not None
+    assert abs((est.best - truth).total_seconds()) <= 18 * 3600
+
+
+@pytest.mark.parametrize("day", [9, 10])
+def test_weight_with_measurements_finds_the_window(day):
+    sim = simulate(SimConfig())
+    settings = Settings(target_bar_20c=2.5, temp_plan=PLAN, volume_l=50.0)
+    est = run(sim, day, settings, spindle=False, bubbles=False, anchors_every=1.0, weight=True)
+    truth = sim.crossing(settings.target_sugar())
+    assert est.weight_calibrated
+    assert abs((est.best - truth).total_seconds()) <= 12 * 3600
+
+
+def test_one_leg_of_three_is_calibrated_by_anchors():
+    cfg = SimConfig(volume_l=700.0, vessel_kg=100.0, scale_fraction=1 / 3, scale_noise_kg=0.02)
+    sim = simulate(cfg)
+    est = run(sim, 9, Settings(temp_plan=PLAN, volume_l=700.0), spindle=False, bubbles=False,
+              anchors_every=1.0, weight=True)
+    k_theo = 1000 / (0.47 * 700)
+    assert est.weight_calibrated
+    assert est.weight_g_l_per_kg == pytest.approx(3 * k_theo, rel=0.2)
+    assert any("Drittel" in n for n in est.notes)
+    assert est.sugar == pytest.approx(sim.sugar_at(sim.start + timedelta(days=9)), abs=3.0)
+
+
+def test_sample_does_not_look_like_fermentation():
+    sim = simulate(SimConfig(samples=((7.0, 0.25),)))  # 250 mL aus 50 L: ohne Filter ~11 g/L Fehler
+    est = run(sim, 9, Settings(temp_plan=PLAN, volume_l=50.0), spindle=False, bubbles=False,
+              anchors_every=99, weight=True)
+    assert est.weight_steps >= 1
+    assert est.sugar == pytest.approx(sim.sugar_at(sim.start + timedelta(days=9)), abs=3.0)
+
+
+def test_weight_with_all_sources_stays_on_truth():
+    sim = simulate(SimConfig())
+    est = run(sim, 9, Settings(temp_plan=PLAN, volume_l=50.0), weight=True)
+    assert est.sugar == pytest.approx(sim.sugar_at(sim.start + timedelta(days=9)), abs=2.5)

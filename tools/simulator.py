@@ -2,7 +2,8 @@
 
 Bildet ab: logistische Gärung mit nachlassender Hefe, Temperaturplan, Spindel mit Versatz,
 Drift und Rauschen, Blasenzähler mit Leck, Sättigung (max. ~6 Blasen/s) und CO2-Rücklösung
-beim Kühlen sowie Refraktometer-Messungen mit Ablesefehler.
+beim Kühlen, Refraktometer-Messungen mit Ablesefehler sowie eine Waage (ganzes Gefäß oder
+ein Bein von dreien) mit Rauschen, Drift und Probenahmen.
 
 Aufruf:  python3 tools/simulator.py      (druckt einen Verlauf und die Prognose)
 """
@@ -42,6 +43,11 @@ class SimConfig:
     ml_per_bubble: float = 2.0
     leak_fraction: float = 0.1
     max_bubbles_per_min: float = 360.0
+    vessel_kg: float = 15.0  # Leergewicht des Gefäßes (Ballon ~15 kg, 750-L-Tank ~100 kg)
+    scale_fraction: float = 1.0  # Anteil, den die Waage sieht: 1 = ganzes Gefäß, 1/3 = ein Bein von dreien
+    scale_noise_kg: float = 0.002
+    scale_drift_kg_per_day: float = 0.0
+    samples: tuple[tuple[float, float], ...] = ()  # Probenahmen: (Tag, Liter)
     days: float = 14.0
     step_min: int = 15
     seed: int = 7
@@ -55,6 +61,7 @@ class SimResult:
     temps: list[tuple[datetime, float]] = field(default_factory=list)
     gravity: list[tuple[datetime, float]] = field(default_factory=list)
     bubbles: list[tuple[datetime, float]] = field(default_factory=list)  # kumuliert
+    weight: list[tuple[datetime, float]] = field(default_factory=list)  # Anzeige der Waage, kg
 
     def sugar_at(self, t: datetime) -> float:
         best = min(self.truth, key=lambda p: abs((p[0] - t).total_seconds()))
@@ -84,6 +91,8 @@ def simulate(cfg: SimConfig | None = None, start: datetime | None = None) -> Sim
     temp = cfg.temp_start
     bubbles = 0.0
     dissolved = 0.0  # g/L CO2 gelöst
+    wine_kg = cfg.volume_l * model.density(s) * 0.998  # Most, kg
+    pending_samples = sorted(cfg.samples)
     for i in range(n_steps + 1):
         t = start + step * i
         age = i * dt_days
@@ -94,6 +103,11 @@ def simulate(cfg: SimConfig | None = None, start: datetime | None = None) -> Sim
         sg = model.density(s) + cfg.spindle_offset + cfg.spindle_drift_per_day * age + rng.gauss(0, cfg.spindle_noise)
         res.gravity.append((t, sg))
         res.bubbles.append((t, bubbles))
+        while pending_samples and pending_samples[0][0] <= age:
+            _, liters = pending_samples.pop(0)
+            wine_kg -= liters * model.density(s) * 0.998
+        scale = cfg.scale_fraction * (cfg.vessel_kg + wine_kg) + cfg.scale_drift_kg_per_day * age
+        res.weight.append((t, scale + rng.gauss(0, cfg.scale_noise_kg)))
         if i == n_steps:
             break
         # Gärung
@@ -109,6 +123,7 @@ def simulate(cfg: SimConfig | None = None, start: datetime | None = None) -> Sim
         dissolved += produced
         out = max(0.0, dissolved - sat)
         dissolved = min(dissolved, sat)
+        wine_kg -= out * cfg.volume_l / 1000.0  # entwichenes CO2 verlässt das Gefäß
         gas_ml = out * cfg.volume_l / 44.01 * 22414 * (temp + 273.15) / 273.15
         n = gas_ml * (1 - cfg.leak_fraction) / cfg.ml_per_bubble
         n = min(n, cfg.max_bubbles_per_min * cfg.step_min)

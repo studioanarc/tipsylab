@@ -5,10 +5,14 @@ Vorgehen
 2. Spindel: Ihr Versatz wird an jedem Anker neu bestimmt; dazwischen liefert sie S(t).
 3. Blasen: Zwischen den letzten beiden Ankern wird geeicht, wie viel Zucker eine Blase
    bedeutet; danach liefern die Blasen S(t).
-4. Jetzt-Wert: gewichteter Mittelwert der verfügbaren Schätzungen (inverse Varianz).
-5. Prognose: S fällt in der späten Phase etwa exponentiell. Gerechnet wird in thermischer
+4. Waage: Gewichtsverlust ist entwichenes CO2. Mit dem Volumen ergibt das den vergorenen Zucker
+   direkt (0,47 g CO2 je g Zucker); liegen zwei Anker im Verlauf, wird stattdessen zwischen ihnen
+   geeicht. Gelöstes CO2 (Sättigung, Rücklösung beim Kühlen) wird mitgerechnet, Sprünge durch
+   Proben oder Abstiche herausgerechnet.
+5. Jetzt-Wert: gewichteter Mittelwert der verfügbaren Schätzungen (inverse Varianz).
+6. Prognose: S fällt in der späten Phase etwa exponentiell. Gerechnet wird in thermischer
    Zeit (Q10-Skalierung), damit Temperatur und Temperaturplan die Prognose verschieben.
-6. Fenster: Zeitpunkte, an denen S den Zielzucker ± Unsicherheit erreicht.
+7. Fenster: Zeitpunkte, an denen S den Zielzucker ± Unsicherheit erreicht.
 
 Alles ohne numpy und ohne Home Assistant, damit es direkt testbar ist.
 """
@@ -22,7 +26,16 @@ import math
 from statistics import median
 
 from .composition import WineModel
-from .physics import BOTTLES, FILL_MID, FILL_WORST, bottle_pressure, eu_category, sugar_for_pressure
+from .physics import (
+    BOTTLES,
+    FILL_MID,
+    FILL_WORST,
+    YIELD_CO2_SUGAR,
+    bottle_pressure,
+    eu_category,
+    henry,
+    sugar_for_pressure,
+)
 
 T_REF = 15.0  # °C, Bezug der thermischen Zeit
 SIGMA = {"start": 1.0, "brix": 2.5, "sg": 1.5, "brix_sg": 1.2, "sugar": 0.5}
@@ -36,6 +49,12 @@ SOON = timedelta(hours=72)
 DECLINE_FRACTION = 0.5  # Prognose nur aus Punkten unter 50 % des Startzuckers
 FIT_HALF_LIFE = 1.0  # thermische Tage: jüngere Punkte zählen mehr (die Hefe ändert ihr Tempo)
 FIT_HORIZON = 4.0  # thermische Tage zurück
+WEIGHT_NOISE = 2e-5  # Rauschen der Waage, Anteil der Anzeige (500-kg-Zelle: ~10 g)
+WEIGHT_DRIFT_PER_DAY = 5e-5  # Drift der Waage je Tag, Anteil der Anzeige
+WEIGHT_REL_SIGMA_THEO = 0.07  # Volumen (±3 %), CO2-Ausbeute (±3 %), Eichung und Verdunstung
+WEIGHT_REL_SIGMA_CAL = 0.10  # zwischen zwei Ankern geeicht
+WEIGHT_DISSOLVED_SIGMA = 0.3  # g/L Zucker: wie weit die CO2-Sättigung danebenliegen kann
+PEAK_SUGAR_RATE = 30.0  # g/L am Tag: schneller vergärt kein Ansatz; schnellere Gewichtsänderung ist ein Sprung
 FORECAST_TAIL = timedelta(hours=12)  # so weit reicht die Kurve über das Fensterende hinaus
 FORECAST_MAX = timedelta(days=10)
 
@@ -59,6 +78,7 @@ class Settings:
     malic_g_l: float = 0.0
     q10: float = 2.2
     dry_sugar_g_l: float = 2.0
+    volume_l: float | None = None  # für die Waage: Gewichtsverlust je Liter
     # Temperaturplan: Schritte (ab Restzucker g/L oder None für den Start, °C), z. B.
     # ((None, 20.0), (25.0, 14.0)) = 20 °C, ab 25 g/L 14 °C
     temp_plan: tuple[tuple[float | None, float], ...] = ()
@@ -225,6 +245,28 @@ def project(
     return out
 
 
+def remove_steps(
+    points: list[tuple[datetime, float]], max_kg_per_min: float, noise_kg: float
+) -> tuple[list[tuple[datetime, float]], int]:
+    """Sprünge (Probe, Abstich, Anlehnen) aus einer Gewichtsreihe herausrechnen.
+
+    Ändert sich das Gewicht zwischen zwei Werten schneller, als eine Gärung es kann, zählt die
+    Änderung nicht als Gärung. Rückgabe: bereinigte Reihe und Zahl der Sprünge.
+    """
+    out: list[tuple[datetime, float]] = []
+    shift, steps = 0.0, 0
+    prev: tuple[datetime, float] | None = None
+    for t, v in sorted(points, key=lambda p: p[0]):
+        if prev is not None:
+            minutes = (t - prev[0]).total_seconds() / 60.0
+            if abs(v - prev[1]) > 3.0 * max_kg_per_min * minutes + 5.0 * noise_kg:
+                shift -= v - prev[1]
+                steps += 1
+        out.append((t, v + shift))
+        prev = (t, v)
+    return out, steps
+
+
 def observed_rate(points: list[tuple[datetime, float, float]], t_end: datetime, hours: float = 24.0) -> float | None:
     """Zuckerabbau (g/L pro Tag) über `hours` bis t_end, aus Medianen um Anfang und Ende."""
     span = timedelta(hours=hours)
@@ -255,6 +297,91 @@ def relative_rate(
     return rate / mean_s / thermal_factor(temp, q10)
 
 
+def _weight_points(
+    est: "Estimate",
+    settings: Settings,
+    start: datetime,
+    anc: list[Anchor],
+    temp_s: Series,
+    weight: list[tuple[datetime, float]],
+    now: datetime,
+) -> tuple[list[tuple[datetime, float, float]], tuple[datetime, float, float] | None]:
+    """Zucker aus dem Gewicht, stündlich, und der Jetzt-Wert mit seiner vollen Unsicherheit.
+
+    S(t) = S_Anker − k · (w_Anker − w(t)) − (CO2 gelöst(t) − CO2 gelöst(Anker)) / 0,47
+    k = 1000 / (0,47 · Volumen) g/L je kg, oder über alle Anker im Verlauf geeicht.
+
+    Die Punkte tragen nur ihr zufälliges Rauschen; Eichung und Volumen verschieben alle Punkte
+    gemeinsam und gehören deshalb nicht in die Kurvenanpassung, nur in den Jetzt-Wert.
+    """
+    weight = sorted((p for p in weight if p[0] <= now), key=lambda p: p[0])
+    if len(weight) < 2:
+        return [], None
+    ref = abs(median(v for _, v in weight)) or 1.0
+    noise = WEIGHT_NOISE * ref
+    volume = settings.volume_l
+    max_rate = PEAK_SUGAR_RATE * YIELD_CO2_SUGAR * (volume or 1000.0) / 1000.0 / 1440.0  # kg/min
+    cleaned, est.weight_steps = remove_steps(weight, max_rate, noise)
+    if est.weight_steps:
+        est.notes.append(f"Waage: {est.weight_steps} Sprung/Sprünge herausgerechnet (Probe, Abstich?)")
+    wser = Series(cleaned)
+    w_start = wser.v[0] if wser.t[0] - start <= timedelta(hours=12) else None
+
+    def dissolved(t: datetime, is_start: bool = False) -> float:
+        """Gelöstes CO2 in g/L: frischer Most 0, sonst gesättigt, sobald Gas entweicht."""
+        if is_start:
+            return 0.0
+        if w_start is not None and w_start - wser.interpolate(t) <= 10 * noise:
+            return 0.0  # noch kein Gewichtsverlust: das CO2 löst sich noch
+        temp = temp_s.at(t) if temp_s else None
+        return henry(temp if temp is not None else T_REF)
+
+    within = [a for a in anc if wser.t[0] - timedelta(hours=12) <= a.t <= wser.t[-1]]
+    if not within:
+        return [], None
+    k = 1000.0 / (YIELD_CO2_SUGAR * volume) if volume else None
+    rel = WEIGHT_REL_SIGMA_THEO
+    base = within[-1]
+    w_base = wser.interpolate(base.t)
+    d_base = dissolved(base.t, base.kind == "start")
+    # Eichen: Ausgleichsgerade durch alle Anker im Verlauf, bezogen auf den jüngsten
+    pairs = []
+    for a in within[:-1]:
+        dw = wser.interpolate(a.t) - w_base
+        ds = (a.sugar - base.sugar) - (d_base - dissolved(a.t, a.kind == "start")) / YIELD_CO2_SUGAR
+        if dw > 10 * noise and ds > 0:
+            pairs.append((ds, dw, a.sigma**2 + base.sigma**2))
+    if pairs and max(p[0] for p in pairs) >= 2.0:
+        k_cal = sum(ds * dw / var for ds, dw, var in pairs) / sum(dw * dw / var for _, dw, var in pairs)
+        if k is None or 0.25 * k <= k_cal <= 4.0 * k:
+            if k is not None and k_cal > 2.2 * k:
+                est.notes.append("Waage zeigt etwa ein Drittel: mit Testgewicht in der Deckelmitte eichen")
+            k, rel = k_cal, WEIGHT_REL_SIGMA_CAL
+            est.weight_calibrated = True
+        else:
+            est.notes.append("Waage passt nicht zu den Messungen: Eichung prüfen")
+    if k is None:
+        return [], None
+    est.weight_g_l_per_kg = k
+    sig_point = WEIGHT_DISSOLVED_SIGMA + k * noise
+    out: list[tuple[datetime, float, float]] = []
+    hour = timedelta(hours=1)
+    t0 = wser.t[0]
+    while t0 <= wser.t[-1]:
+        vals = wser.window(t0 - timedelta(seconds=1), t0 + hour)
+        if vals:
+            tm = t0 + hour / 2
+            s = base.sugar - k * (w_base - median(vals)) - (dissolved(tm) - d_base) / YIELD_CO2_SUGAR
+            out.append((tm, max(0.0, s), sig_point))
+        t0 += hour
+    if not out:
+        return [], None
+    t_last, s_last, _ = out[-1]
+    days = abs((t_last - base.t).total_seconds()) / 86400.0
+    sig_now = base.sigma + rel * abs(s_last - base.sugar) + sig_point + k * WEIGHT_DRIFT_PER_DAY * ref * days
+    return out, (t_last, s_last, sig_now)
+
+
 @dataclass
 class Estimate:
     now: datetime
@@ -281,6 +408,9 @@ class Estimate:
     measurement_recommended: bool = False
     spindle_offset: float | None = None
     bubble_g_l_per_bubble: float | None = None
+    weight_g_l_per_kg: float | None = None
+    weight_calibrated: bool = False
+    weight_steps: int = 0
     fit_k: float | None = None
     fit_rel: float | None = None
     notes: list[str] = field(default_factory=list)
@@ -297,6 +427,7 @@ def estimate(
     gravity: list[tuple[datetime, float]] | None = None,
     bubbles: list[tuple[datetime, float]] | None = None,
     temps: list[tuple[datetime, float]] | None = None,
+    weight: list[tuple[datetime, float]] | None = None,
 ) -> Estimate:
     est = Estimate(now=now)
     temp_s = Series(temps)
@@ -363,6 +494,10 @@ def estimate(
                     bub_points.append((t_b, a2.sugar - ds, a2.sigma + BUBBLE_REL_SIGMA * abs(ds)))
     points += bub_points[:: max(1, len(bub_points) // 200)]
 
+    # --- Waage: Gewichtsverlust ist entwichenes CO2 --------------------------------------------
+    w_points, w_now = _weight_points(est, settings, start, anc, temp_s, weight or [], now)
+    points += w_points
+
     # --- Prognosemodell -------------------------------------------------------------------------
     tau_now = tau(now)
     decline = [(tau(t), s, sig) for t, s, sig in points if s <= DECLINE_FRACTION * model.s0]
@@ -382,7 +517,10 @@ def estimate(
     for src in (grav_points, bub_points):
         if src and now - src[-1][0] <= FRESH:
             cands.append((src[-1][1], src[-1][2]))
-    if fit is not None:
+    if w_now is not None and now - w_now[0] <= FRESH:
+        cands.append((w_now[1], w_now[2]))
+    if fit is not None and last.sugar <= DECLINE_FRACTION * model.s0:
+        # Fortschreiben nur von einem Anker aus der späten Phase: dort gilt das Zerfallsmodell
         dt = tau_now - tau(last.t)
         s_proj = last.sugar * math.exp(-fit.k * dt)
         cands.append((s_proj, last.sigma + abs(last.sugar - s_proj) * fit.rel_err))
