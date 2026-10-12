@@ -13,7 +13,8 @@ Dieser Ordner (`Tipsy/tipsylab/`) ist als künftiges Projekt-Repo gedacht:
 - Heizung: Das Shelly-Skript schaltet jedes Mal mit Rückfall-Timer ein; bleibt das Skript stehen, ist die Heizung nach zwei Minuten aus.
 - Firmware: Legacy-Topics sind nur bei neuen Geräten aus; ein aktualisiertes Gerät behält seine Einstellung.
 - Waage (11.10.): eine Wägezelle unter einem von drei Tankbeinen reicht, weil drei Beine die Last eindeutig verteilen; geeicht wird mit einem Testgewicht in der Deckelmitte oder über die Messungen. Gelöstes CO₂ und Proben rechnet die Integration heraus.
-- Noch offen: Phase 3, Phase 5 und der Feed für die DataWein-Seite.
+- Alkohol (12.10.): Die App zeigt den Alkohol in der fertigen Flasche mit Unsicherheit und Etikettwert; Messpaare aus Refraktometer und Dichte eichen ihn (Abschnitt 2.10).
+- Noch offen: Phase 3, Phase 5, ein Laborwert in % vol als Messart (würde den Umrechnungsfaktor pro Haus eichen) und der Feed für die DataWein-Seite.
 
 **Rahmenbedingungen (von dir):**
 - Nur Pet Nat und Naturwein, kein Bier. Charmat als Option.
@@ -302,6 +303,25 @@ Zusammen sind das nach meiner Schätzung vor jeder Eichung etwa ±0,8 bar bei 20
 - **Blasen → CO₂:** Die Richtung aller Effekte ist sicher, die Größen sind Schätzungen. Frisch gärender Wein ist oft übersättigt; dann löst er beim Kühlen weniger CO₂ zurück als berechnet.
 - **Refraktometer plus Dichte:** Die ±1 g/L sind meine Abschätzung aus den Empfindlichkeiten der Geräte, nicht gemessen. Gegen zwei, drei Laborwerte prüfen.
 - **Charmat:** Im ruhenden Tank stellt sich das Gleichgewicht zwischen Gas und Wein langsam ein, und die 8 % Abfüllverlust sind ein Startwert. Die ersten Flaschen eichen beides.
+
+### 2.10 Alkohol fürs Etikett
+
+Fürs Etikett zählt der Alkohol in der fertigen Flasche. Beim Pet Nat vergärt der Restzucker nach dem Abfüllen noch, das ist gut 1 % vol mehr als beim Abfüllen. Die App rechnet deshalb den Endwert nach vollständiger Vergärung bis zum Endzucker (Standard 2 g/L, wie beim Druck). Ist der Wein schon trockener, endet die Rechnung dort.
+
+Zwei Wege führen zur selben Zahl:
+- **Aus dem Most:** vergärbarer Zucker geteilt durch 16,83 g/L je % vol. Das ist der Umrechnungswert des EU-Weinrechts für den potenziellen Alkohol; in der Literatur liegt er bei 16–18, bei Torulaspora und Spontangärung eher höher. Unsicher sind der Faktor (±0,5 g/L), der vergärbare Anteil am Brix (92 ± 2 %) und der Start-Brix (±0,2 °Bx). Zusammen sind das etwa ±0,46 % vol (1σ).
+- **Aus einem Messpaar** (Refraktometer und Dichte an derselben, entgasten Probe, Abschnitt 2.5): Es misst den Alkohol direkt, ohne Umrechnungsfaktor. Der Rest bis trocken kommt im Verhältnis dazu, in dem bisher Zucker zu Alkohol wurde. Unsicher sind die Koeffizienten des Alkohols in Brechung und Dichte (je ±3 %; damit trifft ein Paar allein etwa ±0,5 % vol, wie es Bellingham + Stanley für Weinrefraktometer angibt) und die Geräte. Paare zählen erst, wenn höchstens die Hälfte des Zuckers übrig ist; vorher sagen sie wenig über den Endwert.
+
+Beide Wege teilen sich den vergärbaren Anteil: Wie viel vom Restzucker noch vergärt, lässt sich ohne Labor nicht messen. Die App gewichtet deshalb mit der vollen Kovarianz (verallgemeinerte kleinste Quadrate) und nicht wie unabhängige Messungen; sonst wäre das ± zu klein. Bei 200 simulierten Weinen, deren Wahrheit so streut wie angenommen, liegt sie in 96–97 % der Fälle innerhalb 2σ (`tests/core/test_alcohol.py`).
+
+| Grundlage | ± (1σ) |
+|---|---|
+| nur der Most | 0,46 % vol |
+| ein Messpaar kurz vor dem Abfüllen | 0,37 % vol |
+| mehrere Messpaare | 0,34–0,36 % vol |
+| ein Messpaar am trockenen Wein | 0,31 % vol |
+
+**Etikett (VO (EU) 2019/33, Art. 44):** Angegeben wird in ganzen oder halben % vol. Die Analyse darf höchstens ±0,5 % vol abweichen, bei Schaum- und Perlwein ±0,8 % vol; ein Pet Nat unter 1 bar ist Stillwein. Die App rundet auf halbe % vol und nennt den Etikettwert sicher, wenn der wahre Wert mit 95 % Wahrscheinlichkeit in der Toleranz liegt. Beim Pet Nat reicht dafür meist ein Messpaar kurz vor dem Abfüllen. Beim Stillwein reicht es ohne Labor nicht.
 
 ---
 

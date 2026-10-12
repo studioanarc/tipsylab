@@ -46,8 +46,9 @@ Hintergrund, Physik und Entscheidungen: [docs/PLAN-Abfuellzeitpunkt.md](docs/PLA
   Blasen und Gewicht. Die Prognose rechnet in thermischer Zeit, so dass Kühlen und
   Temperaturplan das Fenster verschieben. Ergebnis: Abfüllfenster mit Unsicherheit, DUB, Druck
   beim Öffnen bei 10 und 20 °C, Prüfung der Flaschengrenze im ungünstigen Fall (330 ml 4,5 bar,
-  750 ml 6 bar), Malo in der Flasche als Option.
-- **Naturwein:** Zeit bis trocken, Warnung bei stockender Gärung.
+  750 ml 6 bar), Malo in der Flasche als Option, Alkohol in der Flasche mit Unsicherheit und
+  Etikettwert.
+- **Naturwein:** Zeit bis trocken, Warnung bei stockender Gärung, Alkohol fürs Etikett.
 - **Charmat:** CO₂-Ziel und Tank-Sollwert aus dem Flaschenziel; die Tankbox regelt danach.
 - **Gewicht:** Gewichtsverlust ist entwichenes CO₂. Mit dem Volumen ergibt das den vergorenen
   Zucker direkt; liegen Messungen im Verlauf, wird an ihnen geeicht. Gelöstes CO₂ und Proben
@@ -110,9 +111,9 @@ Anleitung in [`tools/panel-vorschau/index.html`](tools/panel-vorschau/index.html
 
 ## Stand
 
-Umgesetzt: Integration mit Panel, Prognose Stufe 1, Druckmodell, Gewicht als Quelle; Gärbox-Firmware
-2.2 mit Display und optionaler Waage; ESPHome für Tank-, Waage- und Kellerluftbox; Heizbox-Skript;
-Blueprints.
+Umgesetzt: Integration mit Panel, Prognose Stufe 1, Druckmodell, Gewicht als Quelle, Alkohol fürs
+Etikett; Gärbox-Firmware 2.2 mit Display und optionaler Waage; ESPHome für Tank-, Waage- und
+Kellerluftbox; Heizbox-Skript; Blueprints.
 
 Noch offen: das probabilistische Modell (Phase 3 im Plan; in der Simulation kommt die Prognose der
 Stufe 1 einige Stunden zu spät), die Nachkalkulation mit Messflaschen (Phase 5) und der öffentliche
