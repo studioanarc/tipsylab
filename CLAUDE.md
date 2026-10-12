@@ -42,9 +42,10 @@ regeln vor Ort. Übersicht der Boxen: `boxen/README.md`.
   ändern; `tests/frontend/test_physics_js.py` prüft das. Die Tabellen im Plan kommen aus
   `tools/druckmodell.py` und müssen zu `core/physics.py` passen (`tests/core/test_physics.py`).
 - **Geheimnisse:** `boxen/gaerbox/secrets.ini`, `boxen/esphome/secrets.yaml` und
-  `boxen/gaerbox/backup/` nie committen (stehen in `.gitignore`). Aus
-  `../TipsyLab OLD VERSIONS/TIPSY CLAUDE/` nie etwas übernehmen oder hochladen: Dort stehen WLAN-
-  und MQTT-Passwort im Klartext. Zugangsdaten nie ausgeben.
+  `boxen/gaerbox/backup/` nie committen (stehen in `.gitignore`). Aus `../TipsyLab OLD VERSIONS/`
+  nie etwas übernehmen oder hochladen: In `TIPSY CLAUDE/src/main.cpp`, `Tipsy/src/main.cpp` und
+  `TIPSYlab incl Webportal/secrets.ini` stehen WLAN-, MQTT- und OTA-Passwörter im Klartext.
+  Zugangsdaten nie ausgeben.
 
 ## Arbeiten
 
