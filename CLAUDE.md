@@ -14,15 +14,19 @@ allen Entscheidungen: `docs/PLAN-Abfuellzeitpunkt.md`. Bei Fachfragen dort zuers
 
 ## Wo was liegt
 
-- `custom_components/tipsylab/core/`: Physik, Weinmodell, Gärschätzung, Blasen, Charmat. Ohne
-  Home Assistant, direkt testbar. Hier wird gerechnet; alles andere ruft das nur auf.
-- `custom_components/tipsylab/`: Integration (Coordinator, Config Flow, Sensoren, Services,
-  WebSocket `tipsylab/batches` und `tipsylab/preview`).
+Zwei Teile: die **Integration** rechnet (Sensorfusion, Prognose, Panel), die **Boxen** messen und
+regeln vor Ort. Übersicht der Boxen: `boxen/README.md`.
+
+- `custom_components/tipsylab/core/`: Physik, Weinmodell, Gärschätzung (Anker, Spindel, Blasen,
+  Waage), Blasenzählung, Charmat. Ohne Home Assistant, direkt testbar. Hier wird gerechnet.
+- `custom_components/tipsylab/`: Integration (Coordinator, Config Flow mit „Neu konfigurieren“,
+  Sensoren, Services, WebSocket `tipsylab/batches` und `tipsylab/preview`).
 - `custom_components/tipsylab/frontend/`: Panel als Web Component ohne Build-Schritt.
-- `firmware/`: AtomS3-Blasenzähler (PlatformIO), eigenes README mit Changelog.
-- `esphome/`, `shelly/`, `blueprints/`: Geräte und Benachrichtigungen.
-- `tools/`: `druckmodell.py` (Tabellen im Plan), `simulator.py` (Ansätze mit bekannter Wahrheit),
-  `make_atom_font.py`, `panel-vorschau/`.
+- `boxen/gaerbox/`: Gärbox-Firmware (PlatformIO): Blasen, Temperatur, optional HX711-Waage.
+- `boxen/esphome/`: Tankbox, Waagebox, Kellerluftbox, `pakete/waage.yaml` für bestehende ESP32.
+- `boxen/heizbox/`: Shelly-Skript. `blueprints/`: Benachrichtigungen.
+- `tools/`: `druckmodell.py` (Tabellen im Plan), `simulator.py` (Ansätze mit bekannter Wahrheit,
+  auch Waage und Proben), `make_translations.py`, `make_atom_font.py`, `panel-vorschau/`.
 
 ## Regeln, die nicht verhandelbar sind
 
@@ -37,21 +41,22 @@ allen Entscheidungen: `docs/PLAN-Abfuellzeitpunkt.md`. Bei Fachfragen dort zuers
 - **Physik doppelt:** `core/physics.py` und `frontend/physics.js` müssen gleich rechnen. Immer beide
   ändern; `tests/frontend/test_physics_js.py` prüft das. Die Tabellen im Plan kommen aus
   `tools/druckmodell.py` und müssen zu `core/physics.py` passen (`tests/core/test_physics.py`).
-- **Geheimnisse:** `firmware/secrets.ini`, `esphome/secrets.yaml` und `firmware/backup/` nie
-  committen (stehen in `.gitignore`). Aus `../TipsyLab OLD VERSIONS/TIPSY CLAUDE/` nie etwas
-  übernehmen oder hochladen: Dort stehen WLAN- und MQTT-Passwort im Klartext. Zugangsdaten nie
-  ausgeben.
+- **Geheimnisse:** `boxen/gaerbox/secrets.ini`, `boxen/esphome/secrets.yaml` und
+  `boxen/gaerbox/backup/` nie committen (stehen in `.gitignore`). Aus
+  `../TipsyLab OLD VERSIONS/TIPSY CLAUDE/` nie etwas übernehmen oder hochladen: Dort stehen WLAN-
+  und MQTT-Passwort im Klartext. Zugangsdaten nie ausgeben.
 
 ## Arbeiten
 
 ```bash
 uv sync && uv run pytest                   # Tests (Home Assistant 2026.2)
-cd firmware && pio run                     # Firmware bauen; FW_VERSION und Changelog mitziehen
-esphome config esphome/tipsy-tank.yaml     # braucht esphome/secrets.yaml
+cd boxen/gaerbox && pio run               # Firmware bauen; FW_VERSION und Changelog mitziehen
+esphome config boxen/esphome/tankbox.yaml  # braucht boxen/esphome/secrets.yaml
 ```
 
-- `firmware/include/tipsy_fonts.h` wird von `tools/make_atom_font.py` erzeugt, nicht von Hand ändern.
-- Übersetzungen (`strings.json`, `translations/`) gemeinsam ändern, Deutsch und Englisch.
+- `boxen/gaerbox/include/tipsy_fonts.h` wird von `tools/make_atom_font.py` erzeugt,
+  `strings.json` und `translations/` von `tools/make_translations.py`: nie von Hand ändern.
+- Neue Quellen im Schätzer immer erst im Simulator abbilden und dort testen (bekannte Wahrheit).
 - Panel ansehen ohne Home Assistant: Anleitung oben in `tools/panel-vorschau/index.html`
   (echte Daten aus der Integration, Screenshots mit Chrome headless).
 - Commits auf Deutsch im Stil `Bereich: was sich ändert`, etwa `Kern: …`, `Panel: …`,

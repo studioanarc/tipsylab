@@ -1,134 +1,124 @@
 # TIPSYLAB
 
 Gärüberwachung für Tipsy Wines: wann ein Pet Nat in die Flasche muss, wann ein Naturwein durch
-ist und welcher Druck im Charmat-Tank gehalten werden soll. Alles läuft in Home Assistant; am
-Gärröhrchen zählt ein M5 AtomS3 die Blasen und zeigt, wie lange es noch dauert.
+ist und welcher Druck im Charmat-Tank gehalten werden soll.
 
+TIPSYLAB besteht aus zwei Teilen:
+
+- **Die Home-Assistant-Integration** ([`custom_components/tipsylab`](custom_components/tipsylab))
+  ist das Gehirn. Sie sammelt für jeden Ansatz alle Quellen ein (deine Messungen, Spindel,
+  Blasen, Gewicht, Temperatur), führt sie zu einem Restzucker mit Unsicherheit zusammen, sagt das
+  Abfüllfenster voraus und rechnet den Druck in der Flasche. Dazu gehört das Panel „TIPSYLAB“
+  in der Seitenleiste, am Handy, Tablet oder PC.
+- **Die Boxen** ([`boxen/`](boxen)) sitzen an Gefäßen, Tanks und im Keller. Sie messen, zeigen
+  das Nötigste an und regeln vor Ort, auch ohne WLAN.
+
+```
+ BOXEN (vor Ort)                     HOME ASSISTANT                         ANZEIGE
+ Gärbox    Blasen · ° · Gewicht ─┐
+           zeigt BPM · DUB · ° ◄─┤   TIPSYLAB-Integration                   Panel TIPSYLAB
+ Waagebox  Gewicht ──────────────┤    Sensorfusion: Restzucker ± σ  ───►    Heute · Messung
+ Spindel   Dichte ───────────────┤    Prognose: Abfüllfenster, DUB          Ziel · Tank
+ Tankbox   Druck · ° ────────────┤    Druck beim Öffnen, Flaschengrenze
+           regelt das Ventil ◄───┤    Temperaturplan, CO₂-Ziel              Handy: Blueprints
+ Heizbox   ° · regelt Heizung ◄──┤                                          für Fenster und Alarme
+ Kellerluftbox  CO₂ · Klima ─────┘
+```
+
+## Die Teile
+
+| Teil | Was es ist | Software | Ordner |
+|---|---|---|---|
+| **Integration** | rechnet und speichert; Panel | Python, Home-Assistant-Integration | [`custom_components/tipsylab`](custom_components/tipsylab) |
+| **Gärbox** | AtomS3 am Gärröhrchen: Blasen, Weintemperatur, optional Gewicht | eigene Firmware (PlatformIO) | [`boxen/gaerbox`](boxen/gaerbox) |
+| **Waagebox** | AtomS3 mit Wägezelle, für Gefäße ohne Gärbox; auch als Paket für jeden ESPHome-ESP32 | ESPHome | [`boxen/esphome`](boxen/esphome) |
+| **Tankbox** | Charmat: Druck halten, Ventil regeln | ESPHome | [`boxen/esphome`](boxen/esphome) |
+| **Kellerluftbox** | CO₂ und Klima im Keller | ESPHome | [`boxen/esphome`](boxen/esphome) |
+| **Heizbox** | Shelly an der Heizmanschette | Shelly-Skript | [`boxen/heizbox`](boxen/heizbox) |
+| **Benachrichtigungen** | Abfüllfenster und Alarme aufs Handy | Blueprints | [`blueprints/automation/tipsylab`](blueprints/automation/tipsylab) |
+
+Welche Box wofür, Einkaufslisten, Anschlüsse und Einrichtung: **[boxen/README.md](boxen/README.md)**.
 Hintergrund, Physik und Entscheidungen: [docs/PLAN-Abfuellzeitpunkt.md](docs/PLAN-Abfuellzeitpunkt.md).
-Gestaltung: [docs/ui-entwurf/](docs/ui-entwurf/) (Schriften und Farben wie tipsy.pt, keine runden Ecken).
 
-## Was es kann
+## Was die Integration rechnet
 
-- **Pet Nat:** Restzucker aus Refraktometer, Dichte oder Labor, laufend fortgeschrieben mit
-  Spindel, Blasenzähler und Temperatur. Prognose in thermischer Zeit, so dass Kühlen und
-  Temperaturplan das Fenster verschieben. Ergebnis: Abfüllfenster mit Unsicherheit, Zeit bis zum
-  Abfüllen (DUB), Druck beim Öffnen bei 10 und 20 °C, Prüfung der Flaschengrenze im ungünstigen
-  Fall (330 ml 4,5 bar, 750 ml 6 bar), Malo in der Flasche als Option.
+- **Pet Nat:** Restzucker aus Refraktometer, Dichte oder Labor, fortgeschrieben mit Spindel,
+  Blasen und Gewicht. Die Prognose rechnet in thermischer Zeit, so dass Kühlen und
+  Temperaturplan das Fenster verschieben. Ergebnis: Abfüllfenster mit Unsicherheit, DUB, Druck
+  beim Öffnen bei 10 und 20 °C, Prüfung der Flaschengrenze im ungünstigen Fall (330 ml 4,5 bar,
+  750 ml 6 bar), Malo in der Flasche als Option.
 - **Naturwein:** Zeit bis trocken, Warnung bei stockender Gärung.
-- **Charmat:** Tank-Sollwert aus dem Flaschenziel und der Tanktemperatur. Die Regelung läuft
-  lokal auf dem Gerät am Tank und regelt ohne WLAN weiter.
-- **Temperaturplan:** Heizmanschetten über Shelly, Solltemperatur aus dem Plan des Ansatzes.
-- **Kellerluft:** CO₂ mit Alarm aufs Handy.
-
-## Aufbau
-
-```
- Gärröhrchen                    Home Assistant                         Handy, Tablet
- AtomS3, Firmware 2.1  ──MQTT──  Integration tipsylab  ──WebSocket──   Panel TIPSYLAB
-  Blasen, Temperatur      ◄──     ├ Messungen, Ansätze, Prognose         Heute · Messung · Ziel · Tank
-  zeigt BPM · DUB · °     DUB     ├ Spindel (vorhandene Entität)
-                                  ├ Shelly: Solltemperatur ──────────►   Heizmanschette (Skript regelt)
-                                  └ ESPHome: CO₂-Ziel ───────────────►   Charmat-Tank (regelt selbst)
-```
-
-| Ordner | Inhalt |
-|---|---|
-| `custom_components/tipsylab/` | Home-Assistant-Integration mit Panel (`frontend/`) |
-| `custom_components/tipsylab/core/` | Physik, Weinmodell, Gärschätzung, Blasenzählung, Charmat; ohne Home Assistant testbar |
-| `firmware/` | AtomS3-Blasenzähler, Firmware 2.1 (PlatformIO), eigenes [README](firmware/README.md) |
-| `esphome/` | Charmat-Tank (`tipsy-tank.yaml`) und Kellerluft (`tipsy-kellerluft.yaml`) |
-| `shelly/` | Heizregler-Skript für Shelly 1PM Gen3/Gen4 mit Plus Add-on |
-| `blueprints/automation/tipsylab/` | Benachrichtigungen: Abfüllfenster und Alarme |
-| `tools/` | Druckmodell, Simulator, Font-Generator fürs AtomS3 |
-| `tests/` | Physik, Gärschätzung gegen den Simulator, Integration in Home Assistant, Panel-Physik |
-| `assets/` | Tipsy-Logo fürs AtomS3 (128 × 128) |
+- **Charmat:** CO₂-Ziel und Tank-Sollwert aus dem Flaschenziel; die Tankbox regelt danach.
+- **Gewicht:** Gewichtsverlust ist entwichenes CO₂. Mit dem Volumen ergibt das den vergorenen
+  Zucker direkt; liegen Messungen im Verlauf, wird an ihnen geeicht. Gelöstes CO₂ und Proben
+  rechnet die Integration heraus. Unter einem Tank mit drei Beinen reicht eine Wägezelle.
 
 ## Einrichten
 
-### Integration und Panel
-
-1. HACS → Benutzerdefinierte Repositories → `https://github.com/studioanarc/tipsylab`, Typ
-   Integration → TIPSYLAB installieren. Ohne HACS: `custom_components/tipsylab` in den Ordner
-   `custom_components` der Home-Assistant-Konfiguration kopieren.
-2. Home Assistant neu starten (ab 2025.8, getestet mit 2026.2).
-3. Einstellungen → Geräte & Dienste → Integration hinzufügen → **TIPSYLAB**. Jeder Ansatz ist ein
-   eigener Eintrag: Name, Betriebsart, Start-Brix oder Startdichte, Volumen, dann die Quellen
-   (Blasenzähler-ID, Spindel, Temperatur, Shelly, beim Charmat Tankdruck und CO₂-Ziel des Reglers)
-   und das Ziel.
-4. In der Seitenleiste erscheint **TIPSYLAB**. Messungen trägst du dort ein; dieselben Services
+1. **Integration:** HACS → Benutzerdefinierte Repositories → `https://github.com/studioanarc/tipsylab`,
+   Typ Integration → TIPSYLAB installieren (ohne HACS: `custom_components/tipsylab` in den
+   gleichnamigen Ordner der Home-Assistant-Konfiguration kopieren). Home Assistant ab 2025.8
+   neu starten (getestet mit 2026.2). Für Gärbox und Display braucht es die MQTT-Integration.
+2. **Boxen** aufbauen und einrichten: [boxen/README.md](boxen/README.md).
+3. **Ansatz anlegen:** Einstellungen → Geräte & Dienste → Integration hinzufügen → TIPSYLAB. Jeder
+   Ansatz ist ein Eintrag: Name, Betriebsart, Start-Brix oder Startdichte, Volumen, dann die
+   Quellen (Gärbox-ID, Spindel, Temperatur, Waage, Shelly, beim Charmat Tankdruck und CO₂-Ziel),
+   dann das Ziel. Quellen lassen sich später über „Neu konfigurieren“ ändern, etwa um eine Waage
+   nachzurüsten; Messungen bleiben dabei erhalten.
+4. **Panel** „TIPSYLAB“ in der Seitenleiste: Messungen eintragen, Ziel einstellen. Dieselben Services
    (`tipsylab.add_measurement`, `add_event`, `update_settings`) gibt es für Automationen.
-
-Für Blasenzähler und Display braucht Home Assistant die MQTT-Integration.
-
-### Blasenzähler (AtomS3)
-
-Firmware bauen und flashen wie in [firmware/README.md](firmware/README.md). Danach in der
-Weboberfläche des Geräts unter Einstellungen → Display-Logo `assets/logo-atoms3-128.png`
-hochladen. Die Geräte-ID (`tipsy-a1b2c3`) steht auf dem Display; sie gehört ins Feld
-„Blasenzähler“ des Ansatzes. Das Display zeigt dann BPM, DUB und die Temperatur.
-
-### Charmat-Tank und Kellerluft (ESPHome)
-
-```bash
-cd esphome
-cp secrets.yaml.example secrets.yaml   # ausfüllen; secrets.yaml bleibt lokal
-esphome run tipsy-tank.yaml
-esphome run tipsy-kellerluft.yaml
-```
-
-Verdrahtung und Annahmen stehen oben in den YAML-Dateien. Im Charmat-Ansatz die Zahl
-**CO₂-Ziel** des Tanks als Regler eintragen, dazu Tankdruck und Weintemperatur als Quellen.
-
-### Heizung (Shelly)
-
-Auf dem Shelly unter Scripts den Inhalt von `shelly/thermostat.js` anlegen, „Run on startup“
-einschalten, den Fühler am Add-on als Temperatur 100 einrichten. Im Ansatz die IP des Shelly
-eintragen; Home Assistant schreibt die Solltemperatur in den KVS-Eintrag `tipsylab_soll`. Die
-Integration schreibt ohne Anmeldung, der Shelly darf deshalb keinen Passwortschutz haben.
-
-### Benachrichtigungen
-
-Einstellungen → Automationen → Blueprints → Blueprint importieren:
-
-- `https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/abfuellfenster.yaml`
-- `https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/alarm.yaml`
+5. **Benachrichtigungen:** Einstellungen → Automationen → Blueprints → Blueprint importieren:
+   - `https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/abfuellfenster.yaml`
+   - `https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/alarm.yaml`
 
 ## Sicherheit
 
 - **Charmat:** Ein mechanisches Sicherheitsventil unter der Zulassung des Tanks ist Pflicht; die
-  Regelung ersetzt es nie. Der Sollwert bleibt mindestens 0,3 bar unter dem Sicherheitsventil.
-  Das Magnetventil ist stromlos geschlossen und direktgesteuert; bei einem Sensorfehler bleibt es zu.
-- **Heizung:** aus über 26 °C und ohne Fühlerwert, auch ohne Home Assistant. Bleibt das Skript
-  stehen, schaltet der Shelly die Heizung nach zwei Minuten von selbst ab.
+  Regelung ersetzt es nie. Der Sollwert bleibt mindestens 0,3 bar darunter. Das Magnetventil ist
+  stromlos geschlossen und direktgesteuert; bei einem Sensorfehler bleibt es zu.
+- **Heizung:** aus über 26 °C und ohne Fühlerwert, auch ohne Home Assistant; bleibt das Skript
+  stehen, schaltet der Shelly nach zwei Minuten ab. 230 V nur durch eine Elektrofachkraft.
 - **Druck in der Flasche:** gerechnet für die vollständige Vergärung des Restzuckers. Ohne eigene
   Messflaschen liegt das Modell bis etwa ±0,8 bar daneben, geeicht etwa ±0,3 bar (Plan 2.9).
   Jede Abfüllung mit einer Messflasche und einem Aphrometer prüfen.
+- **Waage unter dem Tank:** Wägezelle mit Sicherung gegen Verrutschen; da steht fast eine Tonne drauf.
 
 ## Entwickeln
 
-```bash
-uv sync                                    # Python 3.13, Home Assistant 2026.2, pytest-Plugin
-uv run pytest                              # alle Tests
-python3 tools/druckmodell.py               # Drucktabellen aus dem Plan
-python3 tools/simulator.py                 # simulierter Ansatz mit Prognose
-cd firmware && pio run                     # Firmware bauen
-uv run --no-project --with fonttools --with brotli --with pillow python tools/make_atom_font.py
-esphome config esphome/tipsy-tank.yaml     # braucht esphome/secrets.yaml
+```
+custom_components/tipsylab/   Integration; core/ rechnet ohne Home Assistant, frontend/ ist das Panel
+boxen/                        Software der Boxen (gaerbox/, esphome/, heizbox/) und ihre Doku
+blueprints/                   Benachrichtigungen
+docs/                         Plan und UI-Entwurf
+tools/                        Druckmodell, Simulator, Generatoren für Übersetzungen und Display-Schrift, Panel-Vorschau
+tests/                        Kern gegen den Simulator, Integration in Home Assistant, Panel-Physik
+assets/                       Logo für das Display der Gärbox
 ```
 
-Die Physik steht zweimal: `core/physics.py` für die Integration und `frontend/physics.js` für
-die Regler im Panel. `tests/frontend/test_physics_js.py` vergleicht beide mit Node.
+```bash
+uv sync && uv run pytest                   # alle Tests (Home Assistant 2026.2)
+python3 tools/druckmodell.py               # Drucktabellen aus dem Plan
+python3 tools/simulator.py                 # simulierter Ansatz mit Prognose
+python3 tools/make_translations.py         # strings.json und translations/ aus einer Quelle
+cd boxen/gaerbox && pio run                # Gärbox-Firmware bauen
+esphome config boxen/esphome/tankbox.yaml  # braucht boxen/esphome/secrets.yaml
+```
+
+Die Physik steht zweimal: `core/physics.py` für die Integration und `frontend/physics.js` für die
+Regler im Panel; ein Test vergleicht beide. Das Panel lässt sich ohne Home Assistant ansehen:
+Anleitung in [`tools/panel-vorschau/index.html`](tools/panel-vorschau/index.html).
 
 ## Stand
 
-Umgesetzt: die Integration mit Panel, Prognose Stufe 1 und Druckmodell (Phase 1 im Plan),
-Firmware 2.1 mit neuem Display und erweiterter MQTT-Nachricht, ESPHome für Tank und Kellerluft,
-das Shelly-Skript und die Blueprints.
+Umgesetzt: Integration mit Panel, Prognose Stufe 1, Druckmodell, Gewicht als Quelle; Gärbox-Firmware
+2.2 mit Display und optionaler Waage; ESPHome für Tank-, Waage- und Kellerluftbox; Heizbox-Skript;
+Blueprints.
 
-Noch offen: das probabilistische Modell (Phase 3), die Waage für Ballons, die Nachkalkulation
-und Hauswerte aus Messflaschen (Phase 5), der öffentliche Feed für die DataWein-Seite.
+Noch offen: das probabilistische Modell (Phase 3 im Plan; in der Simulation kommt die Prognose der
+Stufe 1 einige Stunden zu spät), die Nachkalkulation mit Messflaschen (Phase 5) und der öffentliche
+Feed für die DataWein-Seite.
 
-Geprüft ist alles, was ohne Hardware geht: Tests, Builds und Konfigurationsprüfung, das Panel
-im Browser mit echten Daten der Integration, das Shelly-Skript in einer Simulation. Am Gerät
-noch nicht gelaufen sind die Firmware 2.1, die ESPHome-Konfigurationen (beim Tank-Display können
-Versatz und Farbinvertierung abweichen) und das Shelly-Skript.
+Geprüft ist, was ohne Hardware geht: Tests gegen einen Simulator mit bekannter Wahrheit, Builds,
+Konfigurationsprüfung, das Panel im Browser mit echten Daten der Integration, das Shelly-Skript in
+einer Simulation. Am Gerät noch nicht gelaufen sind die Gärbox-Firmware 2.1/2.2, die ESPHome-Boxen
+(bei den Displays können Versatz und Farben abweichen) und das Shelly-Skript.
