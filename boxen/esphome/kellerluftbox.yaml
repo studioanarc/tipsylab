@@ -1,4 +1,4 @@
-# TIPSYLAB · Kellerluft: CO₂, Temperatur, Feuchte und Luftdruck (PLAN 3.10 und 3.13).
+# TIPSYLAB · Kellerluftbox: CO₂, Temperatur, Feuchte und Luftdruck im Keller (PLAN 3.10 und 3.13).
 #
 # Gär-CO₂ ist schwerer als Luft und sammelt sich am Boden. Der Arbeitsplatzgrenzwert liegt bei
 # 5.000 ppm (0,5 %). Das Gerät deshalb tief montieren, etwa 30 cm über dem Boden, nicht direkt
@@ -12,7 +12,8 @@
 # das Gerät 5 Minuten ins Freie legen und "CO₂ an Frischluft kalibrieren" drücken.
 #
 # Einrichten: secrets.yaml.example nach secrets.yaml kopieren, dann
-#   esphome run tipsy-kellerluft.yaml
+#   esphome run kellerluftbox.yaml
+# Eine Waage lässt sich anhängen: siehe pakete/waage.yaml (G5 und G6 sind frei).
 
 substitutions:
   name: tipsy-kellerluft

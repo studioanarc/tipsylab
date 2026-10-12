@@ -155,6 +155,36 @@
         .catch((e) => message('Failed: ' + e.message, 'error'));
     });
 
+    // scale (optional HX711): live reading, tare, calibrate, set content
+    const scaleCmd = (body, done) => api.postJson('/api/update-settings', body)
+      .then(() => { message(done, 'success'); setTimeout(refreshScale, 2500); })
+      .catch((e) => message('Failed: ' + e.message, 'error'));
+    function refreshScale() {
+      api.get('/api/status').then((s) => {
+        const sc = s.scale || {};
+        let text = 'No HX711 found (' + (sc.pins || 'DOUT G5, SCK G6') + ')';
+        if (sc.present) {
+          text = sc.kg !== undefined ? sc.kg.toFixed(2) + ' kg' : 'not calibrated';
+          text += ' · raw ' + sc.raw;
+        }
+        if (sc.message) text += ' · ' + sc.message;
+        setText('scale-status', text);
+      }).catch(() => {});
+    }
+    refreshScale();
+    setInterval(refreshScale, 3000);
+    $('scale-tare-btn').addEventListener('click', () => scaleCmd({ scale_tare: 1 }, 'Taring…'));
+    $('scale-cal-btn').addEventListener('click', () => {
+      const v = parseFloat($('scale-known').value);
+      if (!(v > 0)) { message('Enter the known weight in kg first.', 'error'); return; }
+      scaleCmd({ scale_calibrate: v }, 'Calibrating…');
+    });
+    $('scale-set-btn').addEventListener('click', () => {
+      const v = parseFloat($('scale-content').value);
+      if (!(v >= 0)) { message('Enter the current content in kg first.', 'error'); return; }
+      scaleCmd({ scale_set: v }, 'Setting content…');
+    });
+
     $('config-form').addEventListener('submit', (ev) => {
       ev.preventDefault();
       saveSettings()

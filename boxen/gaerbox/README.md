@@ -1,13 +1,14 @@
-# TIPSYlab – fermentation bubble counter (M5 AtomS3)
+# Gärbox – TIPSYlab firmware (M5 AtomS3)
 
-Firmware for an [M5Stack AtomS3](https://docs.m5stack.com/en/core/AtomS3) that sits on a
-fermenter airlock and counts "blops" with its built-in gyroscope, reads up to two DS18B20
-probes and publishes everything over MQTT. Home Assistant picks the device up automatically
-(MQTT discovery); the payloads are also understood by the
-[tipsyhomelab](https://github.com/studioanarc/tipsyhomelab) add-on.
+Firmware for the **Gärbox** of [TIPSYLAB](../../README.md) (overview of all boxes:
+[boxen/README.md](../README.md)): an [M5Stack AtomS3](https://docs.m5stack.com/en/core/AtomS3) that
+sits on a fermenter airlock and counts "blops" with its built-in gyroscope, reads up to two
+DS18B20 probes, optionally weighs the vessel with an HX711 load-cell amplifier, and publishes
+everything over MQTT. Home Assistant picks the device up automatically (MQTT discovery); the
+TIPSYLAB integration reads the raw messages and sends the time until bottling (DUB) back to the
+display.
 
-Firmware **2.1.0** – see [Changelog](#changelog). Part of [TIPSYLAB](../README.md): the Home Assistant
-integration sends the time until bottling (DUB) back to the display.
+Firmware **2.2.0** – see [Changelog](#changelog).
 
 ## Hardware
 
@@ -15,6 +16,7 @@ integration sends the time until bottling (DUB) back to the display.
 |---|---|
 | M5 AtomS3 | ESP32-S3, MPU6886 IMU, 128×128 display, one button |
 | 1–2× DS18B20 | OneWire on **GPIO 2** (Grove port), 4.7 kΩ pull-up |
+| optional: HX711 + load cell | DOUT on **GPIO 5**, SCK on **GPIO 6** (header pins), VCC 3.3 V; see [Scale](#scale-optional) |
 
 ## Quick start
 
@@ -86,13 +88,40 @@ filesystem upload touches them.
   trigger, last peak, send countdown) for 20 s. Hold 5 s = factory reset (clears NVS, restarts
   into the setup AP). The baseline is relearned via `/api/calibrate` or the dashboard button.
 
+## Scale (optional)
+
+With an HX711 board and a load cell the Gärbox also weighs the vessel. Weight loss is escaped CO₂,
+so the TIPSYLAB integration turns it into fermented sugar – without the saturation limit of the
+bubble counter. Without an HX711 nothing changes (the device notices it within 3 s).
+
+- **Demijohn:** single-point load cell under a plate.
+- **Tank with three legs:** one compression load cell (or weigh module, ~500 kg) under one leg, the
+  other two legs on rigid spacers of the same height (steel or POM, no wood or rubber). Three legs
+  share the load by geometry alone, so one leg always carries the same fraction.
+- Wiring: HX711 VCC → 3V3, GND → GND, DT → G5, SCK → G6; load cell E+/E−/A+/A− as labelled on the
+  board. Other pins: `-DTIPSY_HX711_DOUT=7 -DTIPSY_HX711_SCK=8` in `secrets.ini` build flags.
+
+**Calibrate once** on the settings page (`/config`, section *Scale*) or over MQTT:
+
+1. *Tare* (`tipsy/<id>/set/scale_tare`) – the empty vessel, or the full one as it is.
+2. Put a known weight on – on a tank in the middle of the lid – enter it and press *Calibrate*
+   (`tipsy/<id>/set/scale_calibrate` with the weight in kg). Take the weight off again.
+3. Optional *Set content* (`tipsy/<id>/set/scale_set` with the content in kg): the reading then shows
+   the wine in kg.
+
+On a tank, step 2 with the weight on the lid makes one leg read the whole vessel. The integration
+calibrates again from your refractometer measurements anyway, so small errors do not matter.
+Tare and factor are stored in NVS. The state message carries `weight_raw` (mean of the interval's
+conversions) and, once calibrated, `weight_kg`; Home Assistant gets a **Weight** sensor and a
+**Scale tare** button.
+
 ## MQTT
 
 All topics use the device ID. `<id>` = `tipsy-a1b2c3`.
 
 | Topic | Direction | Payload |
 |---|---|---|
-| `sensors/bubble/<id>` | publish, every 60 s | `{"sensor_id","bubbles","cumulative":false,"interval":60,"rate","total","total_all","rate_60s","boot_id","seq","suppressed","saturated","handling","temperature","rssi","uptime","noise","peak","trigger","sample_rate","free_heap","fw","timestamp"}` |
+| `sensors/bubble/<id>` | publish, every 60 s | `{"sensor_id","bubbles","cumulative":false,"interval":60,"rate","total","total_all","rate_60s","boot_id","seq","suppressed","saturated","handling","weight_raw","weight_kg","temperature","rssi","uptime","noise","peak","trigger","sample_rate","free_heap","fw","timestamp"}` (weight only with a scale) |
 | `sensors/temperature/<id>-1`, `…-2` | publish, every 60 s | `{"temperature": 21.31, "sensor_id": "<id>-1"}` (only while a probe is connected) |
 | `tipsy/<id>/settings` | publish, retained | `{"gyro_threshold","min_activity_threshold","debounce_time","legacy_topics","logo_flash_ms","logo_gap_ms"}` |
 | `tipsy/<id>/display` | subscribe, retained | `{"dub_h": 43.2, "state": "soon", "mode": "petnat", "status": "approaching", "measure": false}` from the TIPSYLAB integration |
@@ -205,11 +234,19 @@ the last ~4 s of the raw magnitude with event markers for a closer look.
 platformio.ini        build + OTA envs (partition table = board default, 2 OTA slots)
 secrets.ini(.example) compile-time defaults and OTA password – never commit secrets.ini
 src/main.cpp          firmware
-include/tipsy_fonts.h display digits (JetBrains Mono Bold), generated by ../tools/make_atom_font.py
+include/tipsy_fonts.h display digits (JetBrains Mono Bold), generated by ../../tools/make_atom_font.py
 data/                 web UI, flashed to SPIFFS with `pio run -t uploadfs`
 ```
 
 ## Changelog
+
+### 2.2.0 (2026-10-12)
+
+- Optional scale: HX711 on GPIO 5/6, tare, calibration with a known weight and "set content" on the
+  settings page or over MQTT (`scale_tare`, `scale_calibrate`, `scale_set`), stored in NVS.
+  `weight_raw` and `weight_kg` in the state message, **Weight** sensor and **Scale tare** button in
+  Home Assistant, reading in the diagnostics view.
+- State message buffer 640 bytes, with a warning in the log if it ever were too short.
 
 ### 2.1.0 (2026-10-11)
 

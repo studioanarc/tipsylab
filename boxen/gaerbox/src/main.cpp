@@ -10,6 +10,7 @@
  *
  * Display (2.1): BPM, DUB and temperature on Tipsy ultramarine; the logo flashes for each blop.
  * DUB comes from the TIPSYLAB Home Assistant integration (tipsy/<id>/display).
+ * Scale (2.2, optional): an HX711 with a load cell under the vessel or under one leg of three.
  *
  * Runtime model: loop() never blocks. The gyro is sampled as fast as the IMU
  * delivers data; networking, temperature conversion, display and persistence
@@ -35,8 +36,9 @@
 #include <esp_system.h>
 #include <time.h>
 #include <math.h>
+#include <algorithm>
 
-#define FW_VERSION "2.1.0"
+#define FW_VERSION "2.2.0"
 
 // ===== Compile-time defaults (set them in secrets.ini, see secrets.ini.example) =====
 #ifndef TIPSY_WIFI_SSID
@@ -66,6 +68,13 @@
 
 // ===== Hardware =====
 #define ONE_WIRE_BUS 2  // DS18B20 data pin (Grove port)
+// Optional scale: HX711 on two header pins (override in secrets.ini build_flags)
+#ifndef TIPSY_HX711_DOUT
+#define TIPSY_HX711_DOUT 5
+#endif
+#ifndef TIPSY_HX711_SCK
+#define TIPSY_HX711_SCK 6
+#endif
 
 // ===== Fixed timing =====
 const uint32_t SEND_INTERVAL_MS   = 60000;  // MQTT publish interval
@@ -146,6 +155,8 @@ struct Config {
   bool  legacy_topics          = false; // also publish the 1.x homeassistant/sensor/... topics (mixes data of several devices)
   int   logo_flash_ms          = 300;   // logo shown per blop
   int   logo_gap_ms            = 1200;  // at most one logo per this spacing, so the numbers stay readable
+  float scale_offset           = 0.0f;  // HX711 counts at 0 kg (tare)
+  float scale_factor           = 0.0f;  // kg per count; 0 = not calibrated
 };
 Config config;
 
@@ -230,6 +241,24 @@ uint32_t suppressedCount = 0;      // separate impulses inside the blop spacing 
 uint32_t totalAll = 0, totalAllSaved = 0, lastTotalSave = 0;   // count across restarts, in NVS
 const uint32_t TOTAL_SAVE_MS = 600000;   // every 10 min: survives a power cut, spares the flash
 uint32_t publishSeq = 0;           // sequence number of state messages since boot
+
+// Scale: the HX711 converts at 10 Hz; the last conversions serve tare and calibration, the mean of
+// the send interval goes into the state message. Without an HX711, DOUT never goes low: no scale.
+const uint8_t  SCALE_RING      = 16;       // ~1.6 s of conversions
+const uint32_t SCALE_ABSENT_MS = 3000;
+const int32_t  SCALE_GLITCH    = 200000;   // counts; a single conversion this far off the median is noise
+struct Scale {
+  bool     present = false;
+  uint32_t lastReady = 0;
+  int32_t  ring[SCALE_RING];
+  uint8_t  n = 0, idx = 0, rejects = 0;
+  double   sum = 0;                        // conversions of the current send interval
+  uint32_t count = 0;
+  enum Cmd : uint8_t { NONE, TARE, CALIBRATE, SET } cmd = NONE;
+  float    cmdValue = 0;
+  char     message[64] = "";
+} scale;
+portMUX_TYPE hxMux = portMUX_INITIALIZER_UNLOCKED;
 char     bootId[9] = "";           // random per boot: lets the integration tell a restart from a gap
 uint16_t rollBins[60];             // blops per second for the last 60 s -> live bubbles/min
 uint8_t  rollIdx = 0;
@@ -305,6 +334,9 @@ void loadConfig();
 void saveConfig();
 void factoryReset();
 void saveTotal();
+void scaleTask(uint32_t now);
+float scaleMedian();
+void publishScaleDiscovery();
 bool isoTimestamp(char* buf, size_t n);
 void processGyroSample(float gx, float gy, float gz, uint32_t now);
 void endEvent(uint32_t now);
@@ -416,6 +448,10 @@ void setup() {
   }
 
   // DS18B20: non-blocking conversions, values are read TEMP_CONVERSION_MS later in loop()
+  pinMode(TIPSY_HX711_DOUT, INPUT_PULLUP);   // HX711 pulls it low when a conversion is ready
+  pinMode(TIPSY_HX711_SCK, OUTPUT);
+  digitalWrite(TIPSY_HX711_SCK, LOW);
+
   sensors.begin();
   sensors.setWaitForConversion(false);
   sensors.setResolution(12);
@@ -504,6 +540,7 @@ void loop() {
   mqttTask(now);
   lstatMark(LoopStats::MQTT, tm);
   temperatureTask(now);
+  scaleTask(now);
   lstatMark(LoopStats::TEMP, tm);
   buttonTask(now);
   lstatMark(LoopStats::BTN, tm);
@@ -517,6 +554,8 @@ void loop() {
     lastIntervalBubbles = bubbleCount;
     bubbleCount = 0;
     suppressedCount = 0;
+    scale.sum = 0;
+    scale.count = 0;
   }
 
   if (pendingNetApply) {
@@ -894,6 +933,10 @@ bool applySetting(const char* key, float v) {
     if (v != 0) acalStartPending = true;
     return true;
   }
+  // Scale commands, carried out on the main task with the current reading
+  if (!strcmp(key, "scale_tare"))      { scale.cmd = Scale::TARE;      scale.cmdValue = 0; return true; }
+  if (!strcmp(key, "scale_calibrate")) { scale.cmd = Scale::CALIBRATE; scale.cmdValue = v; return true; }
+  if (!strcmp(key, "scale_set"))       { scale.cmd = Scale::SET;       scale.cmdValue = v; return true; }
   if (!strcmp(key, "gyro_threshold")) {
     if (v < TRIGGER_MIN || v > TRIGGER_MAX) return false;
     config.gyro_threshold = v;
@@ -924,7 +967,7 @@ bool applySetting(const char* key, float v) {
 }
 
 bool applySettingText(const char* key, const char* value) {
-  if (!strcmp(key, "autocal")) return applySetting(key, 1.0f);
+  if (!strcmp(key, "autocal") || !strcmp(key, "scale_tare")) return applySetting(key, 1.0f);
   if (!strcmp(key, "legacy_topics")) {
     bool on = !strcmp(value, "1") || !strcasecmp(value, "true") || !strcasecmp(value, "on");
     return applySetting(key, on ? 1.0f : 0.0f);
@@ -985,6 +1028,8 @@ void loadConfig() {
       config.legacy_topics          = prefs.getBool("legacy", config.legacy_topics);
       config.logo_flash_ms          = prefs.getInt("logo_ms", config.logo_flash_ms);
       config.logo_gap_ms            = prefs.getInt("logo_gap", config.logo_gap_ms);
+      config.scale_offset           = prefs.getFloat("sc_off", config.scale_offset);
+      config.scale_factor           = prefs.getFloat("sc_fac", config.scale_factor);
       int ver = prefs.getInt("cfg_ver", 1);
       if (ver < CONFIG_VERSION) {
         Config fresh;
@@ -1058,9 +1103,113 @@ void saveConfig() {
   prefs.putBool("legacy",       config.legacy_topics);
   prefs.putInt("logo_ms",       config.logo_flash_ms);
   prefs.putInt("logo_gap",      config.logo_gap_ms);
+  prefs.putFloat("sc_off",      config.scale_offset);
+  prefs.putFloat("sc_fac",      config.scale_factor);
   prefs.putInt("cfg_ver",       CONFIG_VERSION);
   prefs.end();
   Serial.println("Config saved");
+}
+
+// One HX711 conversion: 24 bits, MSB first, plus one pulse for channel A / gain 128. SCK must not stay
+// high for 60 us (that powers the chip down), so the ~50 us read runs with interrupts off.
+static bool hx711Read(int32_t& out) {
+  if (digitalRead(TIPSY_HX711_DOUT)) return false;   // no conversion ready (or no HX711)
+  uint32_t v = 0;
+  portENTER_CRITICAL(&hxMux);
+  for (int i = 0; i < 24; i++) {
+    digitalWrite(TIPSY_HX711_SCK, HIGH);
+    delayMicroseconds(1);
+    v = (v << 1) | (uint32_t)digitalRead(TIPSY_HX711_DOUT);
+    digitalWrite(TIPSY_HX711_SCK, LOW);
+    delayMicroseconds(1);
+  }
+  digitalWrite(TIPSY_HX711_SCK, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(TIPSY_HX711_SCK, LOW);
+  portEXIT_CRITICAL(&hxMux);
+  if (v == 0x7FFFFF || v == 0x800000) return false;  // input out of range
+  if (v & 0x800000) v |= 0xFF000000;                 // sign
+  out = (int32_t)v;
+  return true;
+}
+
+float scaleMedian() {
+  if (!scale.n) return NAN;
+  int32_t tmp[SCALE_RING];
+  memcpy(tmp, scale.ring, scale.n * sizeof(int32_t));
+  std::sort(tmp, tmp + scale.n);
+  return (scale.n % 2) ? (float)tmp[scale.n / 2] : 0.5f * ((float)tmp[scale.n / 2 - 1] + (float)tmp[scale.n / 2]);
+}
+
+static float scaleKg(float raw) {
+  return config.scale_factor != 0.0f ? (raw - config.scale_offset) * config.scale_factor : NAN;
+}
+
+void scaleTask(uint32_t now) {
+  int32_t raw;
+  if (hx711Read(raw)) {
+    const float med = scaleMedian();
+    const bool glitch = scale.n >= 4 && !isnan(med) && fabsf((float)raw - med) > SCALE_GLITCH;
+    if (glitch && ++scale.rejects < 8) return;      // one wild conversion: skip it
+    if (glitch) scale.n = 0;                        // eight in a row: the load really changed, start over
+    scale.rejects = 0;
+    scale.ring[scale.idx] = raw;
+    scale.idx = (scale.idx + 1) % SCALE_RING;
+    if (scale.n < SCALE_RING) scale.n++;
+    scale.sum += raw;
+    scale.count++;
+    scale.lastReady = now ? now : 1;
+    if (!scale.present) {
+      scale.present = true;
+      Serial.println("Scale: HX711 found");
+      publishScaleDiscovery();
+    }
+  } else if (scale.present && now - scale.lastReady > SCALE_ABSENT_MS) {
+    scale.present = false;
+    scale.n = 0;
+    scale.sum = 0;
+    scale.count = 0;
+    Serial.println("Scale: HX711 gone");
+  }
+
+  if (scale.cmd == Scale::NONE) return;
+  if (!scale.present) {
+    strlcpy(scale.message, "No HX711 found", sizeof(scale.message));
+    scale.cmd = Scale::NONE;
+    return;
+  }
+  if (scale.n < 8) return;                          // wait for a settled reading
+  const float med = scaleMedian();
+  switch (scale.cmd) {
+    case Scale::TARE:
+      config.scale_offset = med;
+      strlcpy(scale.message, "Tared: reads 0 kg now", sizeof(scale.message));
+      break;
+    case Scale::CALIBRATE: {
+      const float d = med - config.scale_offset;
+      if (scale.cmdValue <= 0 || fabsf(d) < 1000) {
+        strlcpy(scale.message, "Calibration failed: tare, add the weight, then calibrate", sizeof(scale.message));
+      } else {
+        config.scale_factor = scale.cmdValue / d;
+        snprintf(scale.message, sizeof(scale.message), "Calibrated with %.2f kg", scale.cmdValue);
+        publishScaleDiscovery();
+      }
+      break;
+    }
+    case Scale::SET:
+      if (config.scale_factor == 0.0f) {
+        strlcpy(scale.message, "Calibrate first", sizeof(scale.message));
+      } else {
+        config.scale_offset = med - scale.cmdValue / config.scale_factor;
+        snprintf(scale.message, sizeof(scale.message), "Content set to %.1f kg", scale.cmdValue);
+      }
+      break;
+    default:
+      break;
+  }
+  Serial.printf("Scale: %s\n", scale.message);
+  scale.cmd = Scale::NONE;
+  pendingSave = true;
 }
 
 // The count across restarts goes to NVS every 10 min and before planned restarts.
@@ -1335,6 +1484,16 @@ static void discoverButton(const char* key, const char* name, const char* icon) 
   publishDiscoveryDoc("button", key, doc);
 }
 
+// Scale entities only exist once an HX711 answers; the weight in kg only once it is calibrated,
+// so Home Assistant never parses a missing value.
+void publishScaleDiscovery() {
+  if (!mqttUp) return;
+  discoverSensor("weight_raw", "Scale raw", topicState, "weight_raw", nullptr, nullptr, "measurement", "mdi:scale", true);
+  if (config.scale_factor != 0.0f)
+    discoverSensor("weight", "Weight", topicState, "weight_kg", "kg", "weight", "measurement", nullptr, false);
+  discoverButton("scale_tare", "Scale tare", "mdi:scale-balance");
+}
+
 void publishDiscovery() {
   discoverSensor("bubbles", "Bubbles",          topicState, "bubbles", "bubbles", nullptr, "measurement", "mdi:chart-bubble", false);
   discoverSensor("rate",    "Bubble rate",      topicState, "rate",    "/min",    nullptr, "measurement", "mdi:speedometer",  false);
@@ -1351,6 +1510,7 @@ void publishDiscovery() {
   discoverNumber("logo_gap_ms",            "Logo spacing",      0, 10000, 100,  "ms", "mdi:image-multiple-outline");
   discoverFlag("saturated", "Counter saturated", "saturated", "problem");
   discoverFlag("handling",  "Handling",          "handling",  "moving");
+  if (scale.present) publishScaleDiscovery();
   discoverButton("autocal", "Auto-calibrate", "mdi:auto-fix");
   Serial.println("HA discovery published");
 }
@@ -1376,7 +1536,7 @@ void publishState() {
                 (unsigned long)(lstat.maxUs[3] / 1000), (unsigned long)(lstat.maxUs[4] / 1000), (unsigned long)(lstat.maxUs[5] / 1000), (unsigned long)(lstat.maxUs[6] / 1000));
   if (!mqttUp) return;
 
-  char buf[512];
+  char buf[640];
   JsonDocument doc;
   doc["sensor_id"]  = deviceId;
   doc["bubbles"]    = bubbleCount;                               // per interval (not cumulative)
@@ -1393,6 +1553,12 @@ void publishState() {
   const float maxPerMin = 60000.0f / (float)config.debounce_time;
   doc["saturated"]  = rollingCount >= 0.8f * maxPerMin || (suppressedCount >= 5 && suppressedCount * 5 >= (uint32_t)bubbleCount);
   doc["handling"]   = det.handling;
+  if (scale.present && scale.count) {                            // mean of the interval's conversions
+    const double mean = scale.sum / scale.count;
+    doc["weight_raw"] = (long)lround(mean);
+    if (config.scale_factor != 0.0f)
+      doc["weight_kg"] = roundf((float)((mean - config.scale_offset) * config.scale_factor) * 1000.0f) / 1000.0f;
+  }
   if (!isnan(tempC[0])) doc["temperature"] = roundf(tempC[0] * 100) / 100;
   doc["rssi"]        = WiFi.RSSI();
   doc["uptime"]      = millis() / 1000;
@@ -1405,6 +1571,7 @@ void publishState() {
   char ts[32];
   if (isoTimestamp(ts, sizeof(ts))) doc["timestamp"] = ts;
   size_t n = serializeJson(doc, buf, sizeof(buf));
+  if (n >= sizeof(buf) - 1) Serial.println("State message too long - truncated!");
   mqtt.publish(topicState, (const uint8_t*)buf, n, false);
 
   for (int i = 0; i < 2; i++) {
@@ -1794,7 +1961,11 @@ void drawStatusScreen(uint32_t now) {
 
   canvas.setCursor(2, 100);
   canvas.setTextColor(DARKGREY);
-  if (!det.biasReady) canvas.print("calibrating...");
+  if (scale.present) {
+    const float kg = scaleKg(scaleMedian());
+    if (isnan(kg)) canvas.print("scale: not calibrated");
+    else canvas.printf("scale %.2f kg", kg);
+  } else if (!det.biasReady) canvas.print("calibrating...");
   else canvas.printf("noise %.2f trig %.1f", det.noise, det.trigger);
 
   canvas.setCursor(2, 116);
@@ -1891,6 +2062,19 @@ void setupWebServer() {
     doc["release_effective"] = det.release;
     doc["sample_rate"] = det.sampleRate;
     doc["logo"] = logoLoaded;
+    {
+      JsonObject sc = doc["scale"].to<JsonObject>();
+      sc["present"] = scale.present;
+      sc["calibrated"] = config.scale_factor != 0.0f;
+      sc["pins"] = String("DOUT G") + TIPSY_HX711_DOUT + ", SCK G" + TIPSY_HX711_SCK;
+      sc["message"] = scale.message;
+      const float med = scaleMedian();
+      if (!isnan(med)) {
+        sc["raw"] = (long)lroundf(med);
+        const float kg = scaleKg(med);
+        if (!isnan(kg)) sc["kg"] = kg;
+      }
+    }
     {
       JsonObject lp = doc["loop_max_ms"].to<JsonObject>();
       static const char* names[] = {"imu", "net", "mqtt", "temp", "btn", "screen", "other"};

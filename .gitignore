@@ -7,13 +7,13 @@ __pycache__/
 
 # PlatformIO / Firmware
 .pio/
-firmware/secrets.ini
-firmware/backup/
+boxen/gaerbox/secrets.ini
+boxen/gaerbox/backup/
 *.bin
 
 # ESPHome
-esphome/secrets.yaml
-esphome/.esphome/
+boxen/esphome/secrets.yaml
+boxen/esphome/.esphome/
 
 # macOS / Editor
 .DS_Store

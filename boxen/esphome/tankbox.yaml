@@ -1,4 +1,4 @@
-# TIPSYLAB · Charmat-Tank: Druck halten, den die Flasche beim Öffnen haben soll (PLAN 3.9).
+# TIPSYLAB · Tankbox: Charmat-Tank auf dem Druck halten, den die Flasche beim Öffnen haben soll (PLAN 3.9).
 #
 # Hardware: M5 AtomS3, ADS1115 am Grove-Port (I²C), vorhandener Drucktransmitter im Gasraum,
 # DS18B20 in einer Tauchhülse im Wein, stromlos geschlossenes, direktgesteuertes 12-V-Magnetventil
@@ -18,7 +18,7 @@
 #   Display (eingebaut): BAR = Ist-Druck, darunter Sollwert und Weintemperatur
 #
 # Einrichten: secrets.yaml.example nach secrets.yaml kopieren, dann
-#   esphome run tipsy-tank.yaml
+#   esphome run tankbox.yaml
 
 substitutions:
   name: tipsy-tank-03

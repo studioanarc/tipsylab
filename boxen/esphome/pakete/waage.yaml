@@ -1,0 +1,129 @@
+# TIPSYLAB · Waage-Paket: HX711 mit Wägezelle, für jeden ESP32 mit ESPHome.
+#
+# Einbinden in eine bestehende Konfiguration (Pins anpassen):
+#
+#   packages:
+#     waage: !include
+#       file: pakete/waage.yaml
+#       vars:
+#         dout_pin: GPIO5
+#         sck_pin: GPIO6
+#
+# Eichen in Home Assistant, einmalig:
+#   1. "Waage Tara" drücken (leeres Gefäß, oder volles Gefäß wie es ist)
+#   2. Bekanntes Gewicht auflegen, beim Tank mittig auf den Deckel; "Waage Testgewicht" eintragen,
+#      "Waage eichen" drücken, Gewicht wieder abnehmen
+#   3. Optional "Waage Inhalt" eintragen und "Waage Inhalt setzen": dann zeigt "Gewicht" den Wein in kg
+# Bei einer Zelle unter einem von drei Beinen sorgt Schritt 2 dafür, dass die Anzeige das ganze Gefäß
+# meint. Die TIPSYLAB-Integration eicht ohnehin nach, sobald zwei Messungen im Verlauf liegen.
+
+defaults:
+  dout_pin: GPIO5
+  sck_pin: GPIO6
+
+globals:
+  - id: waage_offset                 # Rohwert bei 0 kg
+    type: float
+    restore_value: true
+    initial_value: "0"
+  - id: waage_faktor                 # kg je Rohwert-Schritt; 0 = noch nicht geeicht
+    type: float
+    restore_value: true
+    initial_value: "0"
+
+sensor:
+  - platform: hx711
+    id: waage_roh
+    internal: true
+    dout_pin: ${dout_pin}
+    clk_pin: ${sck_pin}
+    gain: 128
+    update_interval: 1s
+    filters:
+      - median:
+          window_size: 7
+          send_every: 1
+  - platform: copy                   # Minutenmittel: ruhig genug für die Integration
+    source_id: waage_roh
+    id: waage_mittel
+    name: Waage roh
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    filters:
+      - sliding_window_moving_average:
+          window_size: 60
+          send_every: 60
+  - platform: template
+    id: waage_gewicht
+    name: Gewicht
+    unit_of_measurement: kg
+    device_class: weight
+    state_class: measurement
+    accuracy_decimals: 3
+    update_interval: 60s
+    lambda: |-
+      if (id(waage_faktor) == 0.0f || isnan(id(waage_mittel).state)) return NAN;
+      return (id(waage_mittel).state - id(waage_offset)) * id(waage_faktor);
+
+number:
+  - platform: template
+    id: waage_testgewicht
+    name: Waage Testgewicht
+    icon: mdi:weight-kilogram
+    entity_category: config
+    unit_of_measurement: kg
+    min_value: 0.1
+    max_value: 500
+    step: 0.01
+    initial_value: 20
+    optimistic: true
+    restore_value: true
+    mode: box
+  - platform: template
+    id: waage_inhalt
+    name: Waage Inhalt
+    icon: mdi:barrel-outline
+    entity_category: config
+    unit_of_measurement: kg
+    min_value: 0
+    max_value: 5000
+    step: 0.1
+    initial_value: 0
+    optimistic: true
+    mode: box
+
+button:
+  - platform: template
+    name: Waage Tara
+    icon: mdi:scale-balance
+    entity_category: config
+    on_press:
+      - lambda: |-
+          if (isnan(id(waage_roh).state)) { ESP_LOGW("waage", "Kein HX711-Wert"); return; }
+          id(waage_offset) = id(waage_roh).state;
+          ESP_LOGI("waage", "Tara: zeigt jetzt 0 kg");
+  - platform: template
+    name: Waage eichen
+    icon: mdi:scale-balance
+    entity_category: config
+    on_press:
+      - lambda: |-
+          const float d = id(waage_roh).state - id(waage_offset);
+          if (isnan(d) || fabsf(d) < 1000.0f) {
+            ESP_LOGW("waage", "Eichen nicht möglich: erst Tara, dann das Testgewicht auflegen");
+            return;
+          }
+          id(waage_faktor) = id(waage_testgewicht).state / d;
+          ESP_LOGI("waage", "Geeicht mit %.2f kg", id(waage_testgewicht).state);
+  - platform: template
+    name: Waage Inhalt setzen
+    icon: mdi:barrel-outline
+    entity_category: config
+    on_press:
+      - lambda: |-
+          if (id(waage_faktor) == 0.0f || isnan(id(waage_roh).state)) {
+            ESP_LOGW("waage", "Erst eichen");
+            return;
+          }
+          id(waage_offset) = id(waage_roh).state - id(waage_inhalt).state / id(waage_faktor);
+          ESP_LOGI("waage", "Inhalt auf %.1f kg gesetzt", id(waage_inhalt).state);

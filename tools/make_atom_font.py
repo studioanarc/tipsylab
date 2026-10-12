@@ -1,4 +1,4 @@
-"""Erzeugt firmware/include/tipsy_fonts.h: JetBrains Mono Bold als 1-Bit-GFX-Font fürs AtomS3.
+"""Erzeugt boxen/gaerbox/include/tipsy_fonts.h: JetBrains Mono Bold als 1-Bit-GFX-Font fürs AtomS3.
 
 Zwei Größen, nur die Zeichen, die das Display braucht (Ziffern, Komma, Grad, d, h und die
 Kürzel BPM, DUB, DRY, BAR). Quelle ist dieselbe Schrift wie im Panel.
@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "custom_components" / "tipsylab" / "frontend" / "fonts" / "jetbrains-mono-latin.woff2"
-TARGET = ROOT / "firmware" / "include" / "tipsy_fonts.h"
+TARGET = ROOT / "boxen" / "gaerbox" / "include" / "tipsy_fonts.h"
 
 FIRST, LAST = 0x20, 0xB0  # bis zum Gradzeichen; ungenutzte Zeichen bleiben leer
 FONTS = {
