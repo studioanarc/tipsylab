@@ -14,7 +14,8 @@ sich pro Haus an Laborwerten eichen (siehe docs/PLAN, Abschnitte 2.5 und 2.9).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import math
 
 from .units import brix_from_solids, brix_to_sg, sg_to_brix, solids_from_brix
 
@@ -23,6 +24,25 @@ K_ETHANOL_BRIX = 0.37  # Refraktometer-Anzeige in °Bx je % vol Alkohol
 DSG_ETHANOL = -0.00134  # Änderung der relativen Dichte je % vol Alkohol
 BYPRODUCT_FRACTION = 0.04  # g Extrakt (Glycerin u. a.) je g vergorenem Zucker
 FERMENTABLE_FRACTION = 0.92  # Anteil vergärbarer Zucker an den gelösten Stoffen im Most (Säuren, Mineralstoffe, Phenole ~8 %)
+
+# Alkohol in der Flasche (docs/PLAN, Abschnitt 2.10). Unsicherheiten als 1σ; Startwerte.
+ABV_PARAM_SIGMA = {
+    "g_sugar_per_abv": 0.5,  # Spanne 16–18 als ±2σ; Torulaspora und Spontangärung eher oben
+    "fermentable_fraction": 0.02,
+    "brix0": 0.2,  # Messung des Mosts
+    # Koeffizienten je ±3 %: damit trifft ein Messpaar allein etwa ±0,5 % vol (2σ), wie es
+    # Bellingham + Stanley für Weinrefraktometer angibt
+    "k_ethanol_brix": 0.03 * K_ETHANOL_BRIX,
+    "dsg_ethanol": 0.03 * -DSG_ETHANOL,
+}
+PAIR_SIGMA_BRIX = 0.1  # Refraktometer, °Bx
+PAIR_SIGMA_SG = 0.0005  # Hydrometer oder Dichtemeter, entgaste Probe bei 20 °C
+PAIR_MAX_FRACTION = 0.5  # Messpaare zählen erst, wenn höchstens die Hälfte des Zuckers übrig ist
+# VO (EU) 2019/33, Art. 44: Angabe in ganzen oder halben % vol; Abweichung zur Analyse höchstens
+# ±0,5 % vol, bei Schaum- und Perlwein ±0,8 % vol.
+ABV_TOLERANCE_STILL = 0.5
+ABV_TOLERANCE_SPARKLING = 0.8
+ABV_LABEL_CONFIDENCE = 0.95  # so sicher soll der Etikettwert in der Toleranz liegen
 
 
 @dataclass(frozen=True)
@@ -138,3 +158,105 @@ class WineModel:
         abv = (lo + hi) / 2
         sugar, _ = split(abv)
         return max(0.0, sugar), abv
+
+
+# --- Alkohol in der Flasche -------------------------------------------------------------------
+@dataclass(frozen=True)
+class BottleAbv:
+    """Alkohol nach vollständiger Vergärung, mit Unsicherheit und Etikettwert."""
+
+    value: float
+    sigma: float
+    label: float
+    label_ok: bool
+    pairs: int
+
+
+def abv_label(value: float) -> float:
+    """Etikettwert: auf halbe % vol gerundet."""
+    return math.floor(value * 2 + 0.5) / 2
+
+
+def _final_abvs(model: WineModel, dry_sugar: float, pairs: list[tuple[float, float]]) -> list[float]:
+    """Endalkohol auf zwei Wegen: aus dem Most und aus jedem Messpaar.
+
+    Das Messpaar misst den Alkohol direkt; der Rest bis trocken kommt im selben Verhältnis dazu,
+    in dem bisher Zucker zu Alkohol wurde. So hängt es nicht vom Umrechnungsfaktor ab.
+    """
+    out = [max(0.0, model.s0 - dry_sugar) / model.g_sugar_per_abv]
+    for reading, sg in pairs:
+        sugar, abv = model.sugar_and_abv_from_pair(reading, sg)
+        out.append(abv + max(0.0, sugar - dry_sugar) * abv / max(model.s0 - sugar, 1.0))
+    return out
+
+
+def _usable_pair(model: WineModel, pair: tuple[float, float]) -> bool:
+    sugar, abv = model.sugar_and_abv_from_pair(*pair)
+    return sugar <= PAIR_MAX_FRACTION * model.s0 and 0.5 < abv < 19.5
+
+
+def _solve(a: list[list[float]], b: list[float]) -> list[float]:
+    """Lineares Gleichungssystem (Gauß mit Pivotsuche); klein, ohne numpy."""
+    n = len(b)
+    m = [row[:] + [b[i]] for i, row in enumerate(a)]
+    for c in range(n):
+        p = max(range(c, n), key=lambda r: abs(m[r][c]))
+        m[c], m[p] = m[p], m[c]
+        for r in range(n):
+            if r != c:
+                f = m[r][c] / m[c][c]
+                m[r] = [x - f * y for x, y in zip(m[r], m[c])]
+    return [m[i][n] / m[i][i] for i in range(n)]
+
+
+def bottle_abv(
+    model: WineModel,
+    dry_sugar: float,
+    pairs: list[tuple[float, float]] | tuple[tuple[float, float], ...] = (),
+    tolerance: float = ABV_TOLERANCE_SPARKLING,
+) -> BottleAbv:
+    """Alkohol in der Flasche nach vollständiger Vergärung bis dry_sugar.
+
+    Most und Messpaare (Refraktometer °Bx, relative Dichte an derselben Probe) liefern je einen
+    Schätzwert. Sie teilen sich Fehlerquellen (vergärbarer Anteil, Koeffizienten), deshalb werden
+    sie mit ihrer vollen Kovarianz gewichtet (verallgemeinerte kleinste Quadrate), nicht wie
+    unabhängige Messungen.
+    """
+    used = [p for p in pairs if _usable_pair(model, p)]
+    base = _final_abvs(model, dry_sugar, used)
+    n = len(base)
+    cov = [[0.0] * n for _ in range(n)]
+
+    def add(d: list[float]) -> None:
+        for i in range(n):
+            for j in range(n):
+                cov[i][j] += d[i] * d[j]
+
+    for name, sig in ABV_PARAM_SIGMA.items():
+        v = getattr(model, name)
+        hi = _final_abvs(replace(model, **{name: v + sig}), dry_sugar, used)
+        lo = _final_abvs(replace(model, **{name: v - sig}), dry_sugar, used)
+        add([(h - l) / 2 for h, l in zip(hi, lo)])
+    for i, (reading, sg) in enumerate(used, start=1):
+        for pair_hi, pair_lo in (
+            ((reading + PAIR_SIGMA_BRIX, sg), (reading - PAIR_SIGMA_BRIX, sg)),
+            ((reading, sg + PAIR_SIGMA_SG), (reading, sg - PAIR_SIGMA_SG)),
+        ):
+            d = (_final_abvs(model, dry_sugar, [pair_hi])[1] - _final_abvs(model, dry_sugar, [pair_lo])[1]) / 2
+            cov[i][i] += d * d
+    w = _solve(cov, [1.0] * n)
+    total = sum(w)
+    value = sum(wi * f for wi, f in zip(w, base)) / total
+    sigma = math.sqrt(1.0 / total)
+    label = abv_label(value)
+    return BottleAbv(value, sigma, label, label_within(label, value, sigma, tolerance), len(used))
+
+
+def label_within(label: float, value: float, sigma: float, tolerance: float) -> bool:
+    """Liegt der wahre Alkohol mit ABV_LABEL_CONFIDENCE höchstens tolerance vom Etikett entfernt?"""
+
+    def phi(x: float) -> float:
+        return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+    d = value - label
+    return phi((tolerance - d) / sigma) - phi((-tolerance - d) / sigma) >= ABV_LABEL_CONFIDENCE

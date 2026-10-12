@@ -19,7 +19,13 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "custom_components", "tipsylab"))
 
-from core.composition import WineModel  # noqa: E402
+from core.composition import (  # noqa: E402
+    DSG_ETHANOL,
+    FERMENTABLE_FRACTION,
+    G_SUGAR_PER_ABV,
+    K_ETHANOL_BRIX,
+    WineModel,
+)
 from core.fermentation import T_REF, thermal_factor  # noqa: E402
 from core.physics import YIELD_CO2_SUGAR, henry  # noqa: E402
 
@@ -27,6 +33,11 @@ from core.physics import YIELD_CO2_SUGAR, henry  # noqa: E402
 @dataclass
 class SimConfig:
     brix0: float = 20.5
+    # Wahrheit des Weins; der Schätzer kennt nur die Startwerte aus core.composition
+    g_sugar_per_abv: float = G_SUGAR_PER_ABV
+    fermentable_fraction: float = FERMENTABLE_FRACTION
+    k_ethanol_brix: float = K_ETHANOL_BRIX
+    dsg_ethanol: float = DSG_ETHANOL
     volume_l: float = 50.0
     mu: float = 0.75  # Wachstumsrate je thermischem Tag (logistisch)
     decline: float = 0.03  # Hefe lässt je Tag nach (macht das Ende träger als ein reiner Zerfall)
@@ -76,12 +87,29 @@ class SimResult:
     def refractometer(self, t: datetime, rng: random.Random, noise: float) -> float:
         return self.model.refractometer_reading(self.sugar_at(t)) + rng.gauss(0, noise)
 
+    def hydrometer(self, t: datetime, rng: random.Random, noise: float) -> float:
+        """Relative Dichte einer entgasten Probe (Hydrometer oder Dichtemeter)."""
+        return self.model.density(self.sugar_at(t)) + rng.gauss(0, noise)
+
+    def abv_at(self, t: datetime) -> float:
+        return self.model.abv(self.sugar_at(t))
+
+    def bottle_abv(self, dry_sugar: float) -> float:
+        """Wahrer Alkohol nach vollständiger Vergärung bis dry_sugar."""
+        return self.model.abv(dry_sugar)
+
 
 def simulate(cfg: SimConfig | None = None, start: datetime | None = None) -> SimResult:
     cfg = cfg or SimConfig()
     rng = random.Random(cfg.seed)
     start = start or datetime(2026, 9, 1, 8, 0)
-    model = WineModel.from_must(brix0=cfg.brix0)
+    model = WineModel.from_must(
+        brix0=cfg.brix0,
+        g_sugar_per_abv=cfg.g_sugar_per_abv,
+        fermentable_fraction=cfg.fermentable_fraction,
+        k_ethanol_brix=cfg.k_ethanol_brix,
+        dsg_ethanol=cfg.dsg_ethanol,
+    )
     res = SimResult(start=start, model=model)
     s0 = model.s0
     s = s0 * 0.995
@@ -153,3 +181,21 @@ if __name__ == "__main__":
         best = f"{e.best:%a %d.%m. %H:%M}" if e.best else "–"
         print(f"Tag {day:2d}: wahr {sim.sugar_at(now):6.1f}  geschätzt {e.sugar or 0:6.1f} ± {e.sigma or 0:4.1f}  "
               f"beste Zeit {best}  Status {e.status}")
+
+    # Alkohol in der Flasche: Die Wahrheit weicht von den Startwerten ab, der Schätzer kennt sie nicht.
+    # Jeden Tag ein Messpaar (Refraktometer und Hydrometer an derselben Probe).
+    cfg = SimConfig(g_sugar_per_abv=17.4, fermentable_fraction=0.90)
+    sim = simulate(cfg)
+    model = WineModel.from_must(brix0=cfg.brix0)
+    print(f"\nAlkohol in der Flasche: wahr {sim.bottle_abv(settings.dry_sugar_g_l):.2f} % vol "
+          f"(Wahrheit {cfg.g_sugar_per_abv} g/L je % vol, {cfg.fermentable_fraction:.0%} vergärbar)")
+    anchors = []
+    for day in range(1, 14):
+        now = sim.start + timedelta(days=day)
+        if now > sim.truth[-1][0]:
+            break
+        r, sg = sim.refractometer(now, rng, 0.1), sim.hydrometer(now, rng, 0.0005)
+        anchors.append(Anchor(now, model.sugar_and_abv_from_pair(r, sg)[0], 1.2, "brix_density", (r, sg)))
+        e = estimate(model, settings, sim.start, now, anchors)
+        print(f"Tag {day:2d}: jetzt wahr {sim.abv_at(now):5.2f}  Flasche {e.abv_end:5.2f} ± {e.abv_end_sigma:4.2f}  "
+              f"Etikett {e.abv_label:4.1f} {'ok' if e.abv_label_ok else 'unsicher'}  Messpaare {e.abv_pairs}")
