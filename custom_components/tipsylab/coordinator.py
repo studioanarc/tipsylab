@@ -34,6 +34,7 @@ from .const import (
     CONF_START,
     CONF_TEMP_ENTITY,
     CONF_VOLUME,
+    CONF_WEIGHT_ENTITY,
     DEFAULT_OPTIONS,
     DISPLAY_TOPIC,
     DOMAIN,
@@ -62,10 +63,11 @@ from .core.units import brix_to_sg, to_sg
 
 _LOGGER = logging.getLogger(__name__)
 
-SERIES = ("gravity", "temps", "bubbles", "pressure")
+SERIES = ("gravity", "temps", "bubbles", "pressure", "weight")
 DISPLAY_REFRESH = timedelta(minutes=15)
 HEATER_REFRESH = timedelta(minutes=30)
-HISTORY_DAYS = {"gravity": 7, "temps": 7, "pressure": 3}
+HISTORY_DAYS = {"gravity": 7, "temps": 7, "pressure": 3, "weight": 7}
+WEIGHT_UNITS = {"kg": 1.0, "g": 0.001, "lb": 0.45359237}
 HISTORY_POINTS = 300
 
 
@@ -134,7 +136,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
         self._acc = BubbleAccumulator.from_dict(self.store_data.get("bubble_acc"))
 
         entities = [e for e in (self._conf(CONF_GRAVITY_ENTITY), self._conf(CONF_TEMP_ENTITY),
-                                self._conf(CONF_PRESSURE_ENTITY)) if e]
+                                self._conf(CONF_PRESSURE_ENTITY), self._conf(CONF_WEIGHT_ENTITY)) if e]
         if entities:
             self._unsubs.append(async_track_state_change_event(self.hass, entities, self._on_state))
             for entity_id in entities:  # aktuellen Wert gleich mitnehmen
@@ -207,6 +209,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             malic_g_l=malic,
             q10=float(self._opt(OPT_Q10)),
             dry_sugar_g_l=float(self._opt(OPT_DRY_SUGAR)),
+            volume_l=float(self.volume_l) if self.volume_l else None,
             temp_plan=tuple(plan),
         )
 
@@ -237,6 +240,12 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             self._record("temps", t, value)
         elif entity_id == self._conf(CONF_PRESSURE_ENTITY):
             self._record("pressure", t, value)
+        elif entity_id == self._conf(CONF_WEIGHT_ENTITY):
+            unit = (state.attributes.get("unit_of_measurement") or "kg") if state is not None else "kg"
+            if unit not in WEIGHT_UNITS:
+                _LOGGER.warning("Waage %s: Einheit %s unbekannt, erwartet kg oder g", entity_id, unit)
+                return False
+            self._record("weight", t, value * WEIGHT_UNITS[unit])
         else:
             return False
         return True
@@ -260,6 +269,8 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
         self._record("bubbles", now, self._acc.total)
         if not self._conf(CONF_TEMP_ENTITY) and isinstance(payload.get("temperature"), (int, float)):
             self._record("temps", now, float(payload["temperature"]))
+        if not self._conf(CONF_WEIGHT_ENTITY) and isinstance(payload.get("weight_kg"), (int, float)):
+            self._record("weight", now, float(payload["weight_kg"]))  # Gärbox mit Waage
         self._save()
         self.hass.async_create_task(self.async_request_refresh())
 
@@ -365,6 +376,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             self._series("gravity"),
             self._series("bubbles"),
             self._series("temps"),
+            self._series("weight"),
         )
         await self._publish_display(est, now)
         await self._push_heater(est, now)
@@ -458,6 +470,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             self._series("gravity"),
             self._series("bubbles"),
             self._series("temps"),
+            self._series("weight"),
         )
         out.update(
             {
@@ -521,6 +534,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             "anchors": [[_iso(a.t), a.sugar, a.kind] for a in anchors[-40:]],
             "has_heater": bool(self._conf(CONF_HEATER_HOST)),
             "has_gravity": bool(self._conf(CONF_GRAVITY_ENTITY)),
+            "has_weight": bool(self._conf(CONF_WEIGHT_ENTITY) or self.store_data["readings"]["weight"]),
             "settings": {
                 "target_bar_20c": settings.target_bar_20c,
                 "bottle": settings.bottle,
@@ -573,6 +587,8 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 "spindle_offset": est.spindle_offset,
                 "fit_k": est.fit_k,
                 "fit_rel": est.fit_rel,
+                "weight_g_l_per_kg": est.weight_g_l_per_kg,
+                "weight_calibrated": est.weight_calibrated,
                 "notes": est.notes,
                 "series": [[_iso(t), s, sig] for t, s, sig in series[::step]],
                 "forecast": [[_iso(t), s, hi, lo] for t, s, hi, lo in est.forecast[:: max(1, len(est.forecast) // 120)]],

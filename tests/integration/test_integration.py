@@ -285,3 +285,63 @@ async def test_charmat_without_must_accepts_brix(hass: HomeAssistant) -> None:
     assert data["measurements"][-1]["value"] == 9.0
     assert data["s0"] is None
     assert data["anchors"] == []
+
+
+async def test_weight_in_grams_is_recorded_as_kg(hass: HomeAssistant) -> None:
+    hass.states.async_set("sensor.waage", "64250", {"unit_of_measurement": "g"})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Ballon 2",
+        data={"name": "Ballon 2", "mode": "petnat", "brix0": 20.5, "volume_l": 50,
+              "start": (dt_util.utcnow() - timedelta(days=3)).isoformat(), "weight_entity": "sensor.waage"},
+        options={"target_bar_20c": 2.5, "bottle": "750", "q10": 2.2, "dry_sugar_g_l": 2.0, "filling_loss": 0.08},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coord = entry.runtime_data
+    assert coord.store_data["readings"]["weight"][-1][1] == pytest.approx(64.25)
+    assert coord.settings().volume_l == 50
+    assert coord.panel_data()["has_weight"] is True
+
+
+async def test_weight_from_gaerbox_payload(hass: HomeAssistant, mqtt_mock_entry, tmp_path) -> None:
+    (tmp_path / "configuration.yaml").write_text("")
+    hass.config.config_dir = str(tmp_path)
+    await mqtt_mock_entry()
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Ballon 3",
+        data={"name": "Ballon 3", "mode": "petnat", "brix0": 20.0, "volume_l": 50,
+              "start": (dt_util.utcnow() - timedelta(days=2)).isoformat(), "bubble_device": "tipsy-def456"},
+        options={"target_bar_20c": 2.5, "bottle": "750", "q10": 2.2, "dry_sugar_g_l": 2.0, "filling_loss": 0.08},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    async_fire_mqtt_message(
+        hass, "sensors/bubble/tipsy-def456",
+        json.dumps({"bubbles": 20, "total": 20, "boot_id": "b1", "seq": 1, "weight_kg": 69.125}),
+    )
+    await hass.async_block_till_done()
+    assert entry.runtime_data.store_data["readings"]["weight"][-1][1] == pytest.approx(69.125)
+
+
+async def test_reconfigure_adds_a_scale_and_keeps_data(hass: HomeAssistant, petnat_entry: MockConfigEntry) -> None:
+    petnat_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(petnat_entry.entry_id)
+    await hass.services.async_call(
+        DOMAIN, "add_measurement", {"config_entry_id": petnat_entry.entry_id, "kind": "brix", "value": 9.0},
+        blocking=True,
+    )
+    result = await petnat_entry.start_reconfigure_flow(hass)
+    assert result["step_id"] == "reconfigure"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"gravity_entity": "sensor.spindel_gravity", "gravity_unit": "sg",
+         "temperature_entity": "sensor.wein_temperatur", "weight_entity": "sensor.waage"},
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert petnat_entry.data["weight_entity"] == "sensor.waage"
+    assert petnat_entry.data["brix0"] == 20.5
+    assert petnat_entry.runtime_data.store_data["measurements"][-1]["value"] == 9.0

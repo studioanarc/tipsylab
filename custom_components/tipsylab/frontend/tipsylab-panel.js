@@ -820,6 +820,7 @@ class TipsylabPanel extends HTMLElement {
     const parts = [];
     if (h.bpm_now != null) parts.push(`Blasen ${nf(h.bpm_now, 0)}/min`);
     if (b.latest?.gravity) parts.push(`Spindel ${nf(b.latest.gravity[1], 3)}`);
+    if (b.latest?.weight) parts.push(`Waage ${nf(b.latest.weight[1], b.latest.weight[1] < 100 ? 2 : 1)} kg`);
     if (b.latest?.temps) parts.push(`${nf(b.latest.temps[1])} °C`);
     const newest = this._newest(b);
     if (newest != null) parts.push(ago(newest));

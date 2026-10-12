@@ -38,6 +38,7 @@ from .const import (
     CONF_START,
     CONF_TEMP_ENTITY,
     CONF_VOLUME,
+    CONF_WEIGHT_ENTITY,
     DEFAULT_OPTIONS,
     DOMAIN,
     GRAVITY_UNITS,
@@ -53,6 +54,7 @@ from .const import (
     OPT_TEMP_LATE,
     OPT_TEMP_START,
     OPT_TEMP_SWITCH_SUGAR,
+    SOURCE_KEYS,
 )
 
 
@@ -79,6 +81,31 @@ def _parse_start(value: str | None) -> str:
                 parsed = parsed.replace(tzinfo=dt_util.get_default_time_zone())
             return dt_util.as_utc(parsed).isoformat()
     return dt_util.utcnow().isoformat()
+
+
+def sources_schema(mode: str) -> vol.Schema:
+    """Sensoren und Geräte eines Ansatzes, je nach Betriebsart."""
+    if mode == "charmat":
+        return vol.Schema(
+            {
+                vol.Required(CONF_PRESSURE_ENTITY): _sensor(),
+                vol.Required(CONF_TEMP_ENTITY): _sensor(),
+                vol.Optional(CONF_CO2_TARGET_ENTITY): EntitySelector(EntitySelectorConfig(domain="number")),
+                vol.Optional(CONF_HEATER_HOST): TextSelector(),
+            }
+        )
+    return vol.Schema(
+        {
+            vol.Optional(CONF_BUBBLE_DEVICE): TextSelector(),
+            vol.Optional(CONF_GRAVITY_ENTITY): _sensor(),
+            vol.Required(CONF_GRAVITY_UNIT, default="sg"): _select(GRAVITY_UNITS, "gravity_unit"),
+            vol.Optional(CONF_TEMP_ENTITY): _sensor(),
+            vol.Optional(CONF_WEIGHT_ENTITY): EntitySelector(
+                EntitySelectorConfig(domain="sensor", device_class="weight")
+            ),
+            vol.Optional(CONF_HEATER_HOST): TextSelector(),
+        }
+    )
 
 
 def target_schema(mode: str, current: dict[str, Any]) -> vol.Schema:
@@ -142,26 +169,18 @@ class TipsylabConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._data.update({k: v for k, v in user_input.items() if v not in (None, "")})
             return await self.async_step_target()
-        if mode == "charmat":
-            schema = vol.Schema(
-                {
-                    vol.Required(CONF_PRESSURE_ENTITY): _sensor(),
-                    vol.Required(CONF_TEMP_ENTITY): _sensor(),
-                    vol.Optional(CONF_CO2_TARGET_ENTITY): EntitySelector(EntitySelectorConfig(domain="number")),
-                    vol.Optional(CONF_HEATER_HOST): TextSelector(),
-                }
-            )
-        else:
-            schema = vol.Schema(
-                {
-                    vol.Optional(CONF_BUBBLE_DEVICE): TextSelector(),
-                    vol.Optional(CONF_GRAVITY_ENTITY): _sensor(),
-                    vol.Required(CONF_GRAVITY_UNIT, default="sg"): _select(GRAVITY_UNITS, "gravity_unit"),
-                    vol.Optional(CONF_TEMP_ENTITY): _sensor(),
-                    vol.Optional(CONF_HEATER_HOST): TextSelector(),
-                }
-            )
-        return self.async_show_form(step_id="sources", data_schema=schema)
+        return self.async_show_form(step_id="sources", data_schema=sources_schema(mode))
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Quellen nachträglich ändern, etwa eine Waage nachrüsten. Messungen bleiben erhalten."""
+        entry = self._get_reconfigure_entry()
+        mode = entry.data[CONF_MODE]
+        if user_input is not None:
+            data = {k: v for k, v in entry.data.items() if k not in SOURCE_KEYS}
+            data.update({k: v for k, v in user_input.items() if v not in (None, "")})
+            return self.async_update_reload_and_abort(entry, data=data)
+        schema = self.add_suggested_values_to_schema(sources_schema(mode), entry.data)
+        return self.async_show_form(step_id="reconfigure", data_schema=schema)
 
     async def async_step_target(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         mode = self._data[CONF_MODE]

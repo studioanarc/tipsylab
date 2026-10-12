@@ -17,13 +17,28 @@
         "title": "Sources",
         "description": "All optional; you enter measurements later in the panel.",
         "data": {
-          "bubble_device": "Bubble counter (device id, e.g. tipsy-a1b2c3)",
+          "bubble_device": "Bubble counter: Gärbox device id, e.g. tipsy-a1b2c3",
           "gravity_entity": "Hydrometer: gravity sensor",
           "gravity_unit": "Hydrometer unit",
           "temperature_entity": "Wine temperature",
+          "weight_entity": "Scale (vessel weight)",
           "heater_host": "Heater: Shelly address (IP)",
           "pressure_entity": "Tank pressure",
-          "co2_target_entity": "CO₂ target on the controller (ESPHome number)"
+          "co2_target_entity": "CO₂ target on the controller (Tankbox ESPHome number)"
+        }
+      },
+      "reconfigure": {
+        "title": "Change sources",
+        "description": "For example add a scale. Measurements and history are kept.",
+        "data": {
+          "bubble_device": "Bubble counter: Gärbox device id, e.g. tipsy-a1b2c3",
+          "gravity_entity": "Hydrometer: gravity sensor",
+          "gravity_unit": "Hydrometer unit",
+          "temperature_entity": "Wine temperature",
+          "weight_entity": "Scale (vessel weight)",
+          "heater_host": "Heater: Shelly address (IP)",
+          "pressure_entity": "Tank pressure",
+          "co2_target_entity": "CO₂ target on the controller (Tankbox ESPHome number)"
         }
       },
       "target": {
@@ -50,6 +65,9 @@
     },
     "error": {
       "must_required": "Starting Brix or gravity is missing."
+    },
+    "abort": {
+      "reconfigure_successful": "Sources saved."
     }
   },
   "options": {

@@ -39,7 +39,8 @@ async def _batch(hass, now, day, title, mode="petnat", cfg=None, every=None):
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     coord = entry.runtime_data
-    for name, series in (("gravity", sim.gravity), ("temps", sim.temps), ("bubbles", sim.bubbles)):
+    for name, series in (("gravity", sim.gravity), ("temps", sim.temps), ("bubbles", sim.bubbles),
+                         ("weight", sim.weight)):
         for t, v in series:
             if t <= now:
                 coord._record(name, t, v)
@@ -58,9 +59,10 @@ async def _batch(hass, now, day, title, mode="petnat", cfg=None, every=None):
 
 async def test_dump_panel_data(hass: HomeAssistant) -> None:
     now = dt_util.utcnow()
-    petnat = await _batch(hass, now, 9.4, "DATA Rosé 2026")
+    petnat = await _batch(hass, now, 9.4, "DATA Rosé 2026", cfg=SimConfig(volume_l=750, vessel_kg=100))
     still = await _batch(hass, now, 15.5, "Branco Ovar", mode="still",
-                         cfg=SimConfig(days=16, cool_at_sugar=None), every=(2, 5, 8, 11, 14))
+                         cfg=SimConfig(days=16, cool_at_sugar=None, volume_l=750, vessel_kg=100),
+                         every=(2, 5, 8, 11, 14))
 
     entry = MockConfigEntry(
         domain="tipsylab",

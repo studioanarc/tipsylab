@@ -19,6 +19,19 @@ CONF_TEMP_ENTITY = "temperature_entity"
 CONF_PRESSURE_ENTITY = "pressure_entity"  # Charmat: Tankdruck
 CONF_CO2_TARGET_ENTITY = "co2_target_entity"  # Charmat: number-Entität des ESPHome-Reglers
 CONF_HEATER_HOST = "heater_host"  # Shelly mit thermostat.js
+CONF_WEIGHT_ENTITY = "weight_entity"  # Waage (kg oder g), z. B. Gärbox mit HX711 oder Waagebox
+
+# Quellen eines Ansatzes: lassen sich über "Neu konfigurieren" ändern
+SOURCE_KEYS = (
+    "bubble_device",
+    "gravity_entity",
+    "gravity_unit",
+    "temperature_entity",
+    "weight_entity",
+    "heater_host",
+    "pressure_entity",
+    "co2_target_entity",
+)
 
 # Einstellungen (entry.options)
 OPT_TARGET_BAR = "target_bar_20c"
