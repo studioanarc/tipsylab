@@ -539,7 +539,7 @@ class TipsylabPanel extends HTMLElement {
       <p class="hint" id="d-whatif-hint" hidden></p>
       <dl class="leaders">
         <div><dt>Restzucker</dt><dd id="d-sugar">–</dd></div>
-        <div><dt>Alkohol</dt><dd id="d-abv">–</dd></div>
+        <div><dt>Alkohol am Ende</dt><dd id="d-abv">–</dd></div>
         <div><dt>Gärung</dt><dd id="d-rate">–</dd></div>
         ${
           still
@@ -549,6 +549,7 @@ class TipsylabPanel extends HTMLElement {
         }
         <div id="d-plan-row" hidden><dt>Solltemperatur</dt><dd id="d-plan">–</dd></div>
       </dl>
+      <p class="fine" id="d-abv-hint" hidden></p>
       <svg class="chart" id="d-chart" viewBox="0 0 320 196" role="img" aria-label="Restzucker der letzten Tage mit Prognose"></svg>
       <button class="primary" type="button" data-act="goto-measure">+ Messung</button>
       <p class="status" id="d-status"></p>`;
@@ -804,7 +805,17 @@ class TipsylabPanel extends HTMLElement {
     this._show("d-notes", Boolean(notes));
 
     this._set("d-sugar", e.sugar != null ? `${nfs(e.sugar)} ± ${nf(e.sigma)} g/L` : "–");
-    this._set("d-abv", e.abv != null ? `${nf(e.abv)} % vol` : "–");
+    this._set("d-abv", e.abv_end != null ? `${nf(e.abv_end)} ± ${nf(e.abv_end_sigma)} % vol` : "–");
+    let abvHint = "";
+    if (e.abv_end != null) {
+      abvHint = `<strong>Etikett ${nf(e.abv_label, e.abv_label % 1 ? 1 : 0)} % vol</strong>`;
+      if (e.abv_label_ok) abvHint += ".";
+      else if (still || e.category === "still") abvHint += ", für einen Stillwein nur mit Laboranalyse.";
+      else if (e.abv_pairs > 0) abvHint += ", noch knapp: ein weiteres Messpaar oder eine Laboranalyse.";
+      else abvHint += ", noch zu unsicher: Refraktometer und Dichte an derselben Probe messen, am besten kurz vor dem Abfüllen.";
+    }
+    this._html("d-abv-hint", abvHint);
+    this._show("d-abv-hint", Boolean(abvHint));
     this._set("d-rate", e.rate != null ? `${nf(e.rate)} g/L am Tag` : "–");
     if (still) this._set("d-dry", `${nf(b.settings.dry_sugar_g_l)} g/L`);
     else {
@@ -1015,7 +1026,14 @@ class TipsylabPanel extends HTMLElement {
     } else if (p.plausible === false) msg = "Der Wert passt nicht zu diesem Ansatz. Einheit prüfen?";
     else if (p.sugar != null) {
       rows.push(["Restzucker", `${nfs(p.sugar)} g/L${p.prev_sugar != null ? ` <small>war ${nfs(p.prev_sugar)}</small>` : ""}`]);
-      rows.push(["Alkohol", `${nf(p.abv)} % vol`]);
+      if (p.abv_pair != null) {
+        rows.push(["Alkohol jetzt", `${nf(p.abv_pair)} % vol <small>gemessen</small>`]);
+        if (p.abv_end != null) {
+          const before = p.prev_abv_end_sigma != null ? nf(p.prev_abv_end_sigma) : null;
+          const was = before != null && before !== nf(p.abv_end_sigma) ? ` <small>war ± ${before}</small>` : "";
+          rows.push(["Alkohol am Ende", `${nf(p.abv_end)} ± ${nf(p.abv_end_sigma)} % vol${was}`]);
+        }
+      }
       if (p.spindle_offset != null && b.has_gravity) {
         const c = -p.spindle_offset * 1000;
         rows.push(["Spindel-Korrektur", `${c >= 0 ? "+" : "−"}${nf(Math.abs(c))} °Oe`]);

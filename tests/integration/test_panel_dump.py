@@ -24,7 +24,7 @@ OUT = os.environ.get("PANEL_DUMP")
 pytestmark = pytest.mark.skipif(not OUT, reason="nur für die Panel-Vorschau (PANEL_DUMP=<Ordner>)")
 
 
-async def _batch(hass, now, day, title, mode="petnat", cfg=None, every=None):
+async def _batch(hass, now, day, title, mode="petnat", cfg=None, every=None, pairs=()):
     start = now - timedelta(days=day)
     sim = simulate(cfg or SimConfig(), start=start)
     entry = MockConfigEntry(
@@ -49,6 +49,11 @@ async def _batch(hass, now, day, title, mode="petnat", cfg=None, every=None):
         t = start + timedelta(days=d)
         coord.store_data["measurements"].append(
             {"kind": "brix", "value": round(sim.refractometer(t, rng, 0.1), 1), "time": t.isoformat()})
+    for d in pairs:  # Refraktometer und Dichte an derselben Probe
+        t = start + timedelta(days=d)
+        coord.store_data["measurements"].append(
+            {"kind": "brix_density", "value": round(sim.refractometer(t, rng, 0.1), 1),
+             "value2": round(sim.hydrometer(t, rng, 0.0005), 4), "unit": "sg", "time": t.isoformat()})
     coord.store_data["measurements"].append({"kind": "malic", "value": 2.1, "time": (start + timedelta(days=5)).isoformat()})
     coord.store_data["events"].append(
         {"kind": "racking", "time": (start + timedelta(days=3, hours=4)).isoformat(), "note": "grobe Hefe ab"})
@@ -59,7 +64,7 @@ async def _batch(hass, now, day, title, mode="petnat", cfg=None, every=None):
 
 async def test_dump_panel_data(hass: HomeAssistant) -> None:
     now = dt_util.utcnow()
-    petnat = await _batch(hass, now, 9.4, "DATA Rosé 2026", cfg=SimConfig(volume_l=750, vessel_kg=100))
+    petnat = await _batch(hass, now, 9.4, "DATA Rosé 2026", cfg=SimConfig(volume_l=750, vessel_kg=100), pairs=(8.2,))
     still = await _batch(hass, now, 15.5, "Branco Ovar", mode="still",
                          cfg=SimConfig(days=16, cool_at_sugar=None, volume_l=750, vessel_kg=100),
                          every=(2, 5, 8, 11, 14))
@@ -86,10 +91,12 @@ async def test_dump_panel_data(hass: HomeAssistant) -> None:
     await tank.async_refresh()
 
     reading = round(petnat.model().refractometer_reading(13.0), 1)
+    oe = round((petnat.model().density(13.0) - 1) * 1000, 1)  # Dichte derselben Probe in °Oe
     out = Path(OUT)
     out.mkdir(parents=True, exist_ok=True)
     batches = [petnat.panel_data(), still.panel_data(), tank.panel_data()]
     (out / "batches.json").write_text(json.dumps({"batches": batches}, ensure_ascii=False))
-    previews = {petnat.config_entry.entry_id: {"reading": reading, "result": await petnat.async_preview("brix", reading)}}
+    previews = {petnat.config_entry.entry_id: {
+        "reading": reading, "reading2": oe, "result": await petnat.async_preview("brix_density", reading, oe, "oe")}}
     (out / "previews.json").write_text(json.dumps(previews, ensure_ascii=False))
     assert batches[0]["estimate"]["forecast"]
