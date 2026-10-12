@@ -154,6 +154,9 @@
       "alkohol": {
         "name": "Alkohol"
       },
+      "alkohol_flasche": {
+        "name": "Alkohol in der Flasche"
+      },
       "gaergeschwindigkeit": {
         "name": "Gärgeschwindigkeit"
       },

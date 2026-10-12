@@ -76,6 +76,21 @@ SENSORS: tuple[TipsylabSensorDescription, ...] = (
         value_fn=_est("abv", 2),
     ),
     TipsylabSensorDescription(
+        key="alkohol_flasche",
+        translation_key="alkohol_flasche",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        icon="mdi:bottle-wine",
+        value_fn=_est("abv_end", 2),
+        attrs_fn=lambda r: {
+            "unsicherheit": round(r.estimate.abv_end_sigma, 2) if r.estimate and r.estimate.abv_end_sigma else None,
+            "etikett": r.estimate.abv_label if r.estimate else None,
+            "etikett_sicher": r.estimate.abv_label_ok if r.estimate else None,
+            "messpaare": r.estimate.abv_pairs if r.estimate else 0,
+        },
+    ),
+    TipsylabSensorDescription(
         key="gaergeschwindigkeit",
         translation_key="gaergeschwindigkeit",
         native_unit_of_measurement=G_L_DAY,

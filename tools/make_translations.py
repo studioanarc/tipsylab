@@ -154,6 +154,7 @@ def tr(lang: str) -> dict:
             "sensor": {
                 "restzucker": {"name": L("Restzucker", "Residual sugar")},
                 "alkohol": {"name": L("Alkohol", "Alcohol")},
+                "alkohol_flasche": {"name": L("Alkohol in der Flasche", "Alcohol in the bottle")},
                 "gaergeschwindigkeit": {"name": L("Gärgeschwindigkeit", "Fermentation rate")},
                 "zielzucker": {"name": L("Zielzucker", "Target sugar")},
                 "dub": {"name": L("Zeit bis zum Abfüllen", "Time until bottling")},

@@ -345,7 +345,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 raise HomeAssistantError("Für Refraktometer + Dichte braucht es beide Werte")
             sg = to_sg(m["value2"], m.get("unit", "sg"))
             sugar, _ = model.sugar_and_abv_from_pair(m["value"], sg)
-            return Anchor(t, sugar, SIGMA["brix_sg"], kind)
+            return Anchor(t, sugar, SIGMA["brix_sg"], kind, (float(m["value"]), sg))
         return Anchor(t, float(m["value"]), SIGMA["sugar"], kind)
 
     def _series(self, name: str) -> list[tuple[datetime, float]]:
@@ -435,7 +435,10 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
     ) -> dict[str, Any]:
         """Was eine Messung ändern würde, ohne sie zu speichern."""
         current = self.data.estimate if self.data else None
-        out: dict[str, Any] = {"prev_sugar": current.sugar if current else None}
+        out: dict[str, Any] = {
+            "prev_sugar": current.sugar if current else None,
+            "prev_abv_end_sigma": current.abv_end_sigma if current else None,
+        }
         if kind == "malic":
             settings = replace(self.settings(), malic_g_l=float(value))
             out["target_sugar"] = settings.target_sugar()
@@ -457,6 +460,8 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             return out
         out["sugar"] = anchor.sugar
         out["abv"] = model.abv(max(0.0, anchor.sugar))
+        if anchor.pair is not None:
+            out["abv_pair"] = model.sugar_and_abv_from_pair(*anchor.pair)[1]
         out["plausible"] = -1.0 <= anchor.sugar <= model.s0 + 5.0
         if self.mode == "charmat" or not out["plausible"]:
             return out
@@ -481,6 +486,11 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 "end": _iso(est.end) if est.end else None,
                 "status": est.status,
                 "display_state": est.display_state,
+                "abv_end": est.abv_end,
+                "abv_end_sigma": est.abv_end_sigma,
+                "abv_label": est.abv_label,
+                "abv_label_ok": est.abv_label_ok,
+                "abv_pairs": est.abv_pairs,
             }
         )
         return out
@@ -566,6 +576,11 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 "sugar": est.sugar,
                 "sigma": est.sigma,
                 "abv": est.abv,
+                "abv_end": est.abv_end,
+                "abv_end_sigma": est.abv_end_sigma,
+                "abv_label": est.abv_label,
+                "abv_label_ok": est.abv_label_ok,
+                "abv_pairs": est.abv_pairs,
                 "rate": est.rate_g_l_day,
                 "target_sugar": est.target_sugar,
                 "best": _iso(est.best) if est.best else None,

@@ -239,6 +239,41 @@ async def test_preview_does_not_store(hass: HomeAssistant, petnat_entry: MockCon
     assert not msg["success"]
 
 
+async def test_bottle_alcohol_from_a_pair(hass: HomeAssistant, petnat_entry: MockConfigEntry, hass_ws_client) -> None:
+    petnat_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(petnat_entry.entry_id)
+    await hass.async_block_till_done()
+    model = petnat_entry.runtime_data.model()
+    bottle_id = _entity(hass, petnat_entry, "sensor", "alkohol_flasche")
+    before = hass.states.get(bottle_id)
+    assert float(before.state) == pytest.approx(model.abv(2.0), abs=0.05)
+    assert before.attributes["messpaare"] == 0
+
+    pair = {"kind": "brix_density", "value": model.refractometer_reading(15.0), "value2": model.density(15.0), "unit": "sg"}
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "tipsylab/preview", "entry_id": petnat_entry.entry_id, **pair})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    result = msg["result"]
+    assert result["abv_pair"] == pytest.approx(model.abv(15.0), abs=0.05)
+    assert result["abv_pairs"] == 1
+    assert result["abv_end_sigma"] < result["prev_abv_end_sigma"]
+
+    await hass.services.async_call(
+        DOMAIN, "add_measurement", {"config_entry_id": petnat_entry.entry_id, **pair}, blocking=True
+    )
+    await hass.async_block_till_done()
+    after = hass.states.get(bottle_id)
+    assert after.attributes["messpaare"] == 1
+    assert after.attributes["unsicherheit"] < before.attributes["unsicherheit"]
+    assert after.attributes["etikett"] == 12.0
+    assert after.attributes["etikett_sicher"] is True
+    await client.send_json({"id": 2, "type": "tipsylab/batches"})
+    batch = (await client.receive_json())["result"]["batches"][0]
+    assert batch["estimate"]["abv_pairs"] == 1
+    assert batch["estimate"]["abv_label"] == 12.0
+
+
 async def test_readings_keep_latest_time(hass: HomeAssistant, petnat_entry: MockConfigEntry) -> None:
     petnat_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(petnat_entry.entry_id)
