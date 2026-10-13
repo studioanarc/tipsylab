@@ -206,7 +206,10 @@ def tr(lang: str) -> dict:
                     },
                     "value2": {
                         "name": L("Zweiter Wert", "Second value"),
-                        "description": L("Bei Refraktometer + Dichte: die Dichte.", "For refractometer + density: the density."),
+                        "description": L(
+                            "Bei Refraktometer + Dichte: die Dichte. Beim Labor: der Alkohol derselben Probe in % vol.",
+                            "For refractometer + density: the density. For a lab result: the alcohol of the same sample in % vol.",
+                        ),
                     },
                     "unit": {"name": L("Dichte-Einheit", "Density unit"), "description": ""},
                     "temperature": {

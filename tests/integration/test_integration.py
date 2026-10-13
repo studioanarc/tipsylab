@@ -256,7 +256,7 @@ async def test_bottle_alcohol_from_a_pair(hass: HomeAssistant, petnat_entry: Moc
     msg = await client.receive_json()
     assert msg["success"], msg
     result = msg["result"]
-    assert result["abv_pair"] == pytest.approx(model.abv(15.0), abs=0.05)
+    assert result["abv_measured"] == pytest.approx(model.abv(15.0), abs=0.05)
     assert result["abv_pairs"] == 1
     assert result["abv_end_sigma"] < result["prev_abv_end_sigma"]
 
@@ -273,6 +273,25 @@ async def test_bottle_alcohol_from_a_pair(hass: HomeAssistant, petnat_entry: Moc
     batch = (await client.receive_json())["result"]["batches"][0]
     assert batch["estimate"]["abv_pairs"] == 1
     assert batch["estimate"]["abv_label"] == 12.0
+
+
+async def test_lab_alcohol_makes_the_label_safe(hass: HomeAssistant, petnat_entry: MockConfigEntry) -> None:
+    petnat_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(petnat_entry.entry_id)
+    await hass.async_block_till_done()
+    model = petnat_entry.runtime_data.model()
+    await hass.services.async_call(
+        DOMAIN,
+        "add_measurement",
+        {"config_entry_id": petnat_entry.entry_id, "kind": "sugar", "value": 14.0, "value2": round(model.abv(14.0), 2)},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    state = hass.states.get(_entity(hass, petnat_entry, "sensor", "alkohol_flasche"))
+    assert state.attributes["laborwerte"] == 1
+    assert state.attributes["unsicherheit"] < 0.15
+    assert state.attributes["etikett_sicher"] is True
+    assert float(state.state) == pytest.approx(model.abv(2.0), abs=0.1)
 
 
 async def test_readings_keep_latest_time(hass: HomeAssistant, petnat_entry: MockConfigEntry) -> None:

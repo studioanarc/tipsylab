@@ -241,7 +241,7 @@
         },
         "value2": {
           "name": "Zweiter Wert",
-          "description": "Bei Refraktometer + Dichte: die Dichte."
+          "description": "Bei Refraktometer + Dichte: die Dichte. Beim Labor: der Alkohol derselben Probe in % vol."
         },
         "unit": {
           "name": "Dichte-Einheit",

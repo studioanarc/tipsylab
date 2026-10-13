@@ -88,6 +88,7 @@ SENSORS: tuple[TipsylabSensorDescription, ...] = (
             "etikett": r.estimate.abv_label if r.estimate else None,
             "etikett_sicher": r.estimate.abv_label_ok if r.estimate else None,
             "messpaare": r.estimate.abv_pairs if r.estimate else 0,
+            "laborwerte": r.estimate.abv_labs if r.estimate else 0,
         },
     ),
     TipsylabSensorDescription(

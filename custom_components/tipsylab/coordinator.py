@@ -346,7 +346,8 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             sg = to_sg(m["value2"], m.get("unit", "sg"))
             sugar, _ = model.sugar_and_abv_from_pair(m["value"], sg)
             return Anchor(t, sugar, SIGMA["brix_sg"], kind, (float(m["value"]), sg))
-        return Anchor(t, float(m["value"]), SIGMA["sugar"], kind)
+        lab_abv = m.get("value2")  # Laborbefund: Alkohol derselben Probe, % vol
+        return Anchor(t, float(m["value"]), SIGMA["sugar"], kind, abv=float(lab_abv) if lab_abv is not None else None)
 
     def _series(self, name: str) -> list[tuple[datetime, float]]:
         out = []
@@ -461,7 +462,9 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
         out["sugar"] = anchor.sugar
         out["abv"] = model.abv(max(0.0, anchor.sugar))
         if anchor.pair is not None:
-            out["abv_pair"] = model.sugar_and_abv_from_pair(*anchor.pair)[1]
+            out["abv_measured"] = model.sugar_and_abv_from_pair(*anchor.pair)[1]
+        elif anchor.abv is not None:
+            out["abv_measured"] = anchor.abv
         out["plausible"] = -1.0 <= anchor.sugar <= model.s0 + 5.0
         if self.mode == "charmat" or not out["plausible"]:
             return out
@@ -491,6 +494,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 "abv_label": est.abv_label,
                 "abv_label_ok": est.abv_label_ok,
                 "abv_pairs": est.abv_pairs,
+                "abv_labs": est.abv_labs,
             }
         )
         return out
@@ -581,6 +585,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 "abv_label": est.abv_label,
                 "abv_label_ok": est.abv_label_ok,
                 "abv_pairs": est.abv_pairs,
+                "abv_labs": est.abv_labs,
                 "rate": est.rate_g_l_day,
                 "target_sugar": est.target_sugar,
                 "best": _iso(est.best) if est.best else None,

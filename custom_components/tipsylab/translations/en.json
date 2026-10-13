@@ -241,7 +241,7 @@
         },
         "value2": {
           "name": "Second value",
-          "description": "For refractometer + density: the density."
+          "description": "For refractometer + density: the density. For a lab result: the alcohol of the same sample in % vol."
         },
         "unit": {
           "name": "Density unit",
