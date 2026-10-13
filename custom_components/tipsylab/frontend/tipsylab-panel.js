@@ -844,7 +844,9 @@ class TipsylabPanel extends HTMLElement {
       sub = `≈ ${roundHour(best).getHours()} UHR`;
       if (start && end) win = `Fenster ${fmtDay(start)} ${fmtHM(start)} – ${fmtDay(end)} ${fmtHM(end)}`;
       say = inWords((best - now) / HOUR);
-      if (e.measurement_recommended) say += " Eine Messung jetzt macht das Fenster enger.";
+      if (e.measurement_recommended && e.window_h != null && e.window_h_measured != null && e.window_h - e.window_h_measured >= 2)
+        say += ` Eine Messung jetzt macht das Fenster von ±${nf(e.window_h, 0)} h auf ±${nf(e.window_h_measured, 0)} h enger.`;
+      else if (e.measurement_recommended) say += " Eine Messung jetzt macht das Fenster enger.";
     } else if (e.sugar != null) {
       day = "GÄRT";
       if (b.s0) sub = `PROGNOSE AB ≈ ${Math.round(b.s0 / 2)} G/L`;
@@ -870,8 +872,17 @@ class TipsylabPanel extends HTMLElement {
     this._set("d-rate", e.rate != null ? `${nf(e.rate)} g/L am Tag` : "–");
     if (still) this._set("d-dry", `${nf(b.settings.dry_sugar_g_l)} g/L`);
     else {
-      this._set("d-pnow", e.p_now_10 != null ? `${nf(e.p_now_10)}–${nf(e.p_now_20)} bar` : "–");
-      this.$("d-pnow-row")?.classList.toggle("warn", e.p_now_20 != null && e.p_now_20 > b.settings.target_bar_20c + 0.3);
+      let pnow = e.p_now_10 != null ? `${nf(e.p_now_10)}–${nf(e.p_now_20)} bar` : "–";
+      // Wahrscheinlichkeiten nur, wenn das Abfüllen ansteht; vorher ist „zu früh“ ohnehin klar
+      const due = ["soon", "now", "late"].includes(e.display_state);
+      const pct = (x) => (x < 0.01 ? "< 1" : x > 0.99 ? "> 99" : Math.round(x * 100));
+      if (due && e.p_over_limit != null && e.p_over_limit >= 0.01) pnow += ` <small>Grenze ${pct(e.p_over_limit)} %</small>`;
+      else if (due && e.p_over_target != null && e.p_over_target >= 0.05) pnow += ` <small>über Ziel ${pct(e.p_over_target)} %</small>`;
+      this._html("d-pnow", pnow);
+      this.$("d-pnow-row")?.classList.toggle(
+        "warn",
+        (e.p_now_20 != null && e.p_now_20 > b.settings.target_bar_20c + 0.3) || (due && (e.p_over_limit ?? 0) >= 0.01),
+      );
       this._set("d-ptarget", e.p_target_10 != null ? `${nf(e.p_target_10)}–${nf(e.p_target_20)} bar` : "–");
     }
     const plan = (b.settings.temp_plan || []).length > 0 && e.planned_temp != null;
