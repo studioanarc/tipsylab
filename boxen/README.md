@@ -17,6 +17,7 @@ Heizbox regelt auf den letzten Sollwert.
 | [Waagebox](#waagebox) | Gewicht, wenn keine Gärbox am Gefäß hängt | Gewicht | ESPHome | [`esphome/waagebox.yaml`](esphome/waagebox.yaml) |
 | [Waage-Paket](#waage-paket) | Waage an einem ESP32, der schon ESPHome hat | Gewicht | ESPHome-Paket | [`esphome/pakete/waage.yaml`](esphome/pakete/waage.yaml) |
 | [Tankbox](#tankbox) | Charmat-Drucktank | Tankdruck, Weintemperatur; schaltet das Ablassventil | ESPHome | [`esphome/tankbox.yaml`](esphome/tankbox.yaml) |
+| [Flaschenbox](#flaschenbox) | die Messflasche nach dem Abfüllen | Druck und Temperatur der Flasche | ESPHome | [`esphome/flaschenbox.yaml`](esphome/flaschenbox.yaml) |
 | [Kellerluftbox](#kellerluftbox) | ein Raum | CO₂ in der Kellerluft, Temperatur, Feuchte, Luftdruck | ESPHome | [`esphome/kellerluftbox.yaml`](esphome/kellerluftbox.yaml) |
 | [Heizbox](#heizbox) | eine Heizmanschette | Weintemperatur; schaltet die Heizung | Shelly-Skript | [`heizbox/thermostat.js`](heizbox/thermostat.js) |
 
@@ -29,6 +30,7 @@ Nicht von uns, aber unterstützt: jede Spindel, die einen Dichte-Sensor in Home 
 |---|---|---|
 | Pet Nat oder Naturwein im **Ballon** | Gärbox | Waage unter dem Ballon (an der Gärbox); Spindel |
 | Pet Nat oder Naturwein im **Edelstahltank** mit Gärröhrchen | Gärbox | eine Wägezelle unter einem Bein (an der Gärbox oder als Waagebox); Heizbox, wenn der Tank eine Heizmanschette hat; Spindel |
+| **Pet Nat in der Flasche** | – | Flaschenbox an einer Messflasche (sonst Aphrometer und von Hand eintragen) |
 | **Charmat** im Drucktank | Tankbox | Heizbox |
 | der **Keller** | – | Kellerluftbox, eine pro Raum |
 
@@ -124,6 +126,31 @@ Sensor und Ventil sitzen oben im Gasraum, nie im Wein.
 
 **In Home Assistant:** Charmat-Ansatz anlegen; „Tankdruck“ und „Weintemperatur“ der Box als
 Quellen, die Zahl „CO₂-Ziel“ als Regler eintragen, das Sicherheitsventil im Ziel angeben.
+
+## Flaschenbox
+
+**Zweck:** misst den Druck in einer Messflasche, solange der Pet Nat in der Flasche gärt: ein
+eigenes e-aphrom. Die Integration rechnet den Druck auf 20 °C um, vergleicht ihn mit dem Druck bei
+vollständiger Vergärung und meldet, wenn er höher steigt („auf 0–2 °C kühlen“). Ist die Flasche
+durchgegoren, eicht sie beim Abschließen des Ansatzes das Druckmodell für die nächsten Ansätze.
+
+**Hardware**
+- M5Stack AtomS3, ADS1115-Modul (auf 3,3 V)
+- Drucktransmitter 0–10 bar, 0,5–4,5 V, Edelstahl, G1/4, über einen Spannungsteiler 10 kΩ/20 kΩ an A0
+- Kronkorken-Adapter mit Durchführung (wie bei Aphrometern) für denselben Kronkorken wie die anderen
+  Flaschen
+- DS18B20 außen an der Flasche, mit Wärmeleitpaste
+
+**Anschluss:** wie die Tankbox ohne Ventil: ADS1115 an Grove (G2 SDA, G1 SCL), DS18B20 an G6.
+
+**Sicherheit:** Transmitter, Adapter und Kronkorken müssen den Grenzdruck der Flasche aushalten
+(750 ml: 6 bar, 330 ml: 4,5 bar). Den Adapter nur mit Schutzbrille aufsetzen und abnehmen.
+
+**Software:** ESPHome, [`esphome/flaschenbox.yaml`](esphome/flaschenbox.yaml).
+
+**In Home Assistant:** im Pet-Nat-Ansatz unter „Neu konfigurieren“ die Sensoren „Flaschendruck“
+und „Flaschentemperatur“ als „Messflasche: Druck“ und „Messflasche: Temperatur“ eintragen. Ohne
+Flaschenbox geht es auch: das Aphrometer ablesen und unter „Messung → Flaschendruck“ eintragen.
 
 ## Kellerluftbox
 
