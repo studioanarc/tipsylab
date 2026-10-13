@@ -18,12 +18,14 @@ Zwei Teile: die **Integration** rechnet (Sensorfusion, Prognose, Panel), die **B
 regeln vor Ort. Übersicht der Boxen: `boxen/README.md`.
 
 - `custom_components/tipsylab/core/`: Physik, Weinmodell, Gärschätzung (Anker, Spindel, Blasen,
-  Waage), Blasenzählung, Charmat. Ohne Home Assistant, direkt testbar. Hier wird gerechnet.
+  Waage), Alkohol fürs Etikett, Messflasche nach dem Abfüllen, Hauswerte, Blasenzählung, Charmat.
+  Ohne Home Assistant, direkt testbar. Hier wird gerechnet.
 - `custom_components/tipsylab/`: Integration (Coordinator, Config Flow mit „Neu konfigurieren“,
   Sensoren, Services, WebSocket `tipsylab/batches` und `tipsylab/preview`).
 - `custom_components/tipsylab/frontend/`: Panel als Web Component ohne Build-Schritt.
 - `boxen/gaerbox/`: Gärbox-Firmware (PlatformIO): Blasen, Temperatur, optional HX711-Waage.
-- `boxen/esphome/`: Tankbox, Waagebox, Kellerluftbox, `pakete/waage.yaml` für bestehende ESP32.
+- `boxen/esphome/`: Tankbox, Waagebox, Flaschenbox, Kellerluftbox, `pakete/waage.yaml` für
+  bestehende ESP32.
 - `boxen/heizbox/`: Shelly-Skript. `blueprints/`: Benachrichtigungen.
 - `tools/`: `druckmodell.py` (Tabellen im Plan), `simulator.py` (Ansätze mit bekannter Wahrheit,
   auch Waage und Proben), `make_translations.py`, `make_atom_font.py`, `panel-vorschau/`.
@@ -33,13 +35,15 @@ regeln vor Ort. Übersicht der Boxen: `boxen/README.md`.
 - **Sicherheit (Plan 3.8):** Druck immer für vollständige Vergärung rechnen; Flaschengrenzen
   330 ml 4,5 bar, 750 ml 6 bar im ungünstigen Fall prüfen; Charmat-Sollwert mindestens 0,3 bar
   unter dem mechanischen Sicherheitsventil, Magnetventil stromlos zu, bei Sensorfehler zu;
-  Heizung aus über 26 °C oder ohne Fühler, Rückfall-Timer im Shelly-Skript. Nichts davon
-  aufweichen, auch nicht „vorübergehend“.
+  Heizung aus über 26 °C oder ohne Fühler, Rückfall-Timer im Shelly-Skript. Gelernte Hauswerte
+  dürfen den ungünstigen Fall nie milder machen (`fill_conditions` in `core/bottling.py`); gelernt
+  wird nur aus plausiblen Messflaschen. Nichts davon aufweichen, auch nicht „vorübergehend“.
 - **Charmat beim Abkühlen:** Der Sollwert sinkt im ESPHome-Regler absichtlich verzögert
   (Nachführzeit). CO₂ löst sich erst über Stunden; ohne Verzögerung würde das Ventil CO₂ ablassen,
   das im Wein bleiben soll.
-- **Physik doppelt:** `core/physics.py` und `frontend/physics.js` müssen gleich rechnen. Immer beide
-  ändern; `tests/frontend/test_physics_js.py` prüft das. Die Tabellen im Plan kommen aus
+- **Physik doppelt:** `core/physics.py` und `frontend/physics.js` müssen gleich rechnen, ebenso
+  `fill_conditions` (`core/bottling.py`) und `fills` (`physics.js`). Immer beide ändern;
+  `tests/frontend/test_physics_js.py` prüft das. Die Tabellen im Plan kommen aus
   `tools/druckmodell.py` und müssen zu `core/physics.py` passen (`tests/core/test_physics.py`).
 - **Geheimnisse:** `boxen/gaerbox/secrets.ini` (echte WLAN-, MQTT- und OTA-Passwörter),
   `boxen/esphome/secrets.yaml` und `boxen/gaerbox/backup/` (Abbild der alten Firmware, darin

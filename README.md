@@ -8,8 +8,9 @@ TIPSYLAB besteht aus zwei Teilen:
 - **Die Home-Assistant-Integration** ([`custom_components/tipsylab`](custom_components/tipsylab))
   ist das Gehirn. Sie sammelt für jeden Ansatz alle Quellen ein (deine Messungen, Spindel,
   Blasen, Gewicht, Temperatur), führt sie zu einem Restzucker mit Unsicherheit zusammen, sagt das
-  Abfüllfenster voraus und rechnet den Druck in der Flasche. Dazu gehört das Panel „TIPSYLAB“
-  in der Seitenleiste, am Handy, Tablet oder PC.
+  Abfüllfenster voraus und rechnet den Druck in der Flasche. Nach dem Abfüllen wacht sie über die
+  Messflasche und lernt aus jedem abgeschlossenen Ansatz. Dazu gehört das Panel „TIPSYLAB“ in der
+  Seitenleiste, am Handy, Tablet oder PC.
 - **Die Boxen** ([`boxen/`](boxen)) sitzen an Gefäßen, Tanks und im Keller. Sie messen, zeigen
   das Nötigste an und regeln vor Ort, auch ohne WLAN.
 
@@ -21,7 +22,8 @@ TIPSYLAB besteht aus zwei Teilen:
  Spindel   Dichte ───────────────┤    Prognose: Abfüllfenster, DUB          Ziel · Tank
  Tankbox   Druck · ° ────────────┤    Druck beim Öffnen, Flaschengrenze
            regelt das Ventil ◄───┤    Temperaturplan, CO₂-Ziel              Handy: Blueprints
- Heizbox   ° · regelt Heizung ◄──┤                                          für Fenster und Alarme
+ Heizbox   ° · regelt Heizung ◄──┤    Messflasche, Archiv, Hauswerte        für Fenster und Alarme
+ Flaschenbox  Druck · ° ─────────┤
  Kellerluftbox  CO₂ · Klima ─────┘
 ```
 
@@ -33,6 +35,7 @@ TIPSYLAB besteht aus zwei Teilen:
 | **Gärbox** | AtomS3 am Gärröhrchen: Blasen, Weintemperatur, optional Gewicht | eigene Firmware (PlatformIO) | [`boxen/gaerbox`](boxen/gaerbox) |
 | **Waagebox** | AtomS3 mit Wägezelle, für Gefäße ohne Gärbox; auch als Paket für jeden ESPHome-ESP32 | ESPHome | [`boxen/esphome`](boxen/esphome) |
 | **Tankbox** | Charmat: Druck halten, Ventil regeln | ESPHome | [`boxen/esphome`](boxen/esphome) |
+| **Flaschenbox** | Druck in der Messflasche nach dem Abfüllen | ESPHome | [`boxen/esphome`](boxen/esphome) |
 | **Kellerluftbox** | CO₂ und Klima im Keller | ESPHome | [`boxen/esphome`](boxen/esphome) |
 | **Heizbox** | Shelly an der Heizmanschette | Shelly-Skript | [`boxen/heizbox`](boxen/heizbox) |
 | **Benachrichtigungen** | Abfüllfenster und Alarme aufs Handy | Blueprints | [`blueprints/automation/tipsylab`](blueprints/automation/tipsylab) |
@@ -49,6 +52,12 @@ Hintergrund, Physik und Entscheidungen: [docs/PLAN-Abfuellzeitpunkt.md](docs/PLA
   750 ml 6 bar), Malo in der Flasche als Option, Alkohol in der Flasche mit Unsicherheit und
   Etikettwert.
 - **Naturwein:** Zeit bis trocken, Warnung bei stockender Gärung, Alkohol fürs Etikett.
+- **Nach dem Abfüllen:** „Abgefüllt“ hält den Restzucker fest, schaltet die Heizung aus und zeigt
+  den erwarteten Öffnungsdruck. Die Messflasche (Aphrometer oder Flaschenbox) wird auf 20 °C
+  umgerechnet; steigt sie über den erwarteten Druck, gibt es Alarm mit Handlung („auf 0–2 °C
+  kühlen“). „Ansatz abschließen“ legt ihn ins Archiv: mit Nachkalkulation der Prognose und den
+  Hauswerten, die neue Ansätze nutzen (CO₂ beim Abfüllen aus der Messflasche, Zucker je % vol aus
+  Laborwerten).
 - **Charmat:** CO₂-Ziel und Tank-Sollwert aus dem Flaschenziel; die Tankbox regelt danach.
 - **Gewicht:** Gewichtsverlust ist entwichenes CO₂. Mit dem Volumen ergibt das den vergorenen
   Zucker direkt; liegen Messungen im Verlauf, wird an ihnen geeicht. Gelöstes CO₂ und Proben
@@ -116,12 +125,12 @@ Anleitung in [`tools/panel-vorschau/index.html`](tools/panel-vorschau/index.html
 ## Stand
 
 Umgesetzt: Integration mit Panel, Prognose Stufe 1, Druckmodell, Gewicht als Quelle, Alkohol fürs
-Etikett; Gärbox-Firmware 2.2 mit Display und optionaler Waage; ESPHome für Tank-, Waage- und
+Etikett; nach dem Abfüllen Messflasche mit Alarm, Archiv, Nachkalkulation und Hauswerte; Gärbox-
+Firmware 2.2 mit Display und optionaler Waage; ESPHome für Tank-, Waage-, Flaschen- und
 Kellerluftbox; Heizbox-Skript; Blueprints.
 
 Noch offen: das probabilistische Modell (Phase 3 im Plan; in der Simulation kommt die Prognose der
-Stufe 1 einige Stunden zu spät), die Nachkalkulation mit Messflaschen (Phase 5) und der öffentliche
-Feed für die DataWein-Seite.
+Stufe 1 einige Stunden zu spät) und der öffentliche Feed für die DataWein-Seite.
 
 Geprüft ist, was ohne Hardware geht: Tests gegen einen Simulator mit bekannter Wahrheit, Builds,
 Konfigurationsprüfung, das Panel im Browser mit echten Daten der Integration, das Shelly-Skript in
