@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "tools"))
-from simulator import SimConfig, simulate
+from simulator import SimConfig, simulate, simulate_bottle
 
 OUT = os.environ.get("PANEL_DUMP")
 pytestmark = pytest.mark.skipif(not OUT, reason="nur für die Panel-Vorschau (PANEL_DUMP=<Ordner>)")
@@ -90,12 +90,25 @@ async def test_dump_panel_data(hass: HomeAssistant) -> None:
         tank._record("temps", t, round(12.0 + 0.3 * math.sin(h / 4), 2))
     await tank.async_refresh()
 
+    # Abgefüllt vor drei Wochen, Messflasche abgelesen, dann abgeschlossen: Flasche und Archiv
+    bottled = await _batch(hass, now, 30.0, "DATA Rosé 2025", cfg=SimConfig(volume_l=750, vessel_kg=100, days=31),
+                           pairs=(25.0,))
+    await bottled.async_add_measurement("brix", round(bottled.model().refractometer_reading(7.0), 2))
+    await bottled.async_add_event("bottled")
+    when = now - timedelta(days=22)
+    bottled.store_data["bottling"]["time"] = when.isoformat()
+    sugar = bottled.store_data["bottling"]["sugar"]
+    for t, p, temp in simulate_bottle(sugar, saturation=0.9, start=when, days=(3, 7, 14, 21), temp_c=14.0):
+        await bottled.async_add_measurement("bottle_pressure", round(p, 2), temperature=temp, time=t)
+    await bottled.async_add_event("closed")
+
     reading = round(petnat.model().refractometer_reading(13.0), 1)
     oe = round((petnat.model().density(13.0) - 1) * 1000, 1)  # Dichte derselben Probe in °Oe
     out = Path(OUT)
     out.mkdir(parents=True, exist_ok=True)
-    batches = [petnat.panel_data(), still.panel_data(), tank.panel_data()]
-    (out / "batches.json").write_text(json.dumps({"batches": batches}, ensure_ascii=False))
+    batches = [petnat.panel_data(), still.panel_data(), tank.panel_data(), bottled.panel_data()]
+    house = hass.data["tipsylab"]["house"].as_dict()
+    (out / "batches.json").write_text(json.dumps({"batches": batches, "house": house}, ensure_ascii=False))
     previews = {petnat.config_entry.entry_id: {
         "reading": reading, "reading2": oe, "result": await petnat.async_preview("brix_density", reading, oe, "oe")}}
     (out / "previews.json").write_text(json.dumps(previews, ensure_ascii=False))

@@ -41,11 +41,19 @@ const KINDS = {
     label: "Flaschendruck",
     unit: "bar",
     placeholder: "2,4",
-    help: "Aphrometer an einer Messflasche, dazu ihre Temperatur. Gespeichert für die Eichung des Druckmodells.",
+    help: "Aphrometer an der Messflasche, dazu ihre Temperatur. Die App rechnet auf 20 °C um und vergleicht mit dem erwarteten Druck.",
   },
 };
 const DENSITY_UNITS = { oe: { label: "°Oe", placeholder: "−1,8" }, sg: { label: "SG", placeholder: "0,998" } };
-const EVENTS = { racking: "Abstich", volume: "Volumen", cooling: "Kühlen", heating: "Heizen", bottled: "Abgefüllt", note: "Notiz" };
+const EVENTS = {
+  racking: "Abstich",
+  volume: "Volumen",
+  cooling: "Kühlen",
+  heating: "Heizen",
+  bottled: "Abgefüllt",
+  closed: "Abgeschlossen",
+  note: "Notiz",
+};
 const CATEGORY = {
   still: "unter 1 bar: Stillwein",
   semi_sparkling: "frisante · Perlwein (1–2,5 bar bei 20 °C)",
@@ -307,6 +315,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .event-row input, .event-row select { width: 100%; min-width: 0; padding: 4px 0; font: inherit; color: var(--ink); background: transparent; border: 0; border-bottom: 2px solid var(--ink); -webkit-appearance: none; appearance: none; border-radius: 0; }
 .event-row select { padding-right: 14px; cursor: pointer; background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%); background-position: calc(100% - 7px) 55%, calc(100% - 2px) 55%; background-size: 5px 5px; background-repeat: no-repeat; }
 .event-row .ev-value { grid-column: 1 / -1; }
+.log span { flex: 1; min-width: 0; }
+.log .del { flex: none; padding: 0 2px; font: inherit; color: var(--muted); background: none; border: 0; cursor: pointer; }
+.log .del.armed { color: var(--red); font-weight: 700; }
+.link.armed { color: var(--red); border-bottom-color: var(--red); }
+.arch { margin-top: 14px; padding-top: 10px; border-top: 2px solid var(--ink); }
+.arch-title { margin: 0; font-family: var(--font-mono); font-size: 13px; }
+.arch-title small { color: var(--muted); }
+.chart.spark { margin-top: 8px; }
 
 .foot { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; margin-top: 32px; }
 .loading { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
@@ -406,6 +422,7 @@ class TipsylabPanel extends HTMLElement {
     try {
       const res = await this._hass.callWS({ type: "tipsylab/batches" });
       this._batches = res?.batches || [];
+      this._house = res?.house || null;
       this._err = null;
     } catch (err) {
       this._err = errText(err);
@@ -440,14 +457,17 @@ class TipsylabPanel extends HTMLElement {
   _render() {
     if (!this.$("root")) return;
     const b = this._current();
-    const shape = b
-      ? `${this._batches.map((x) => `${x.entry_id}:${x.mode}:${x.name}`).join("|")}#${b.entry_id}#${this._narrow}`
-      : `none#${Boolean(this._err)}#${this._narrow}`;
+    const shape = this._archive
+      ? `archive#${(this._house?.archive || []).length}#${this._narrow}`
+      : b
+        ? `${this._batches.map((x) => `${x.entry_id}:${x.mode}:${x.name}:${x.bottling ? 1 : 0}`).join("|")}#${b.entry_id}#${this._narrow}`
+        : `none#${Boolean(this._err)}#${this._narrow}`;
     if (shape !== this._shape) {
       this._shape = shape;
       this._build(b);
     }
-    this._update(b);
+    if (this._archive) this._updateArchive();
+    else this._update(b);
   }
 
   _menuButton() {
@@ -456,6 +476,10 @@ class TipsylabPanel extends HTMLElement {
 
   _build(b) {
     const root = this.$("root");
+    if (this._archive) {
+      this._buildArchive(root);
+      return;
+    }
     if (!b) {
       root.innerHTML = `
         <header class="top">${this._menuButton()}<span class="logo" aria-hidden="true"></span>
@@ -511,6 +535,9 @@ class TipsylabPanel extends HTMLElement {
       <footer class="foot">
         <button class="link" type="button" data-act="add-batch">+ Neuer Ansatz</button>
         <button class="link" type="button" data-act="open-integration">Ansätze verwalten</button>
+        <button class="link" type="button" data-act="archive">Archiv${
+          this._house?.archive?.length ? ` (${this._house.archive.length})` : ""
+        }</button>
       </footer>`;
     this._wireMenu();
   }
@@ -525,6 +552,7 @@ class TipsylabPanel extends HTMLElement {
 
   /* ---------- Gerüste der Screens ---------- */
   _html_today(b) {
+    if (b.bottling) return this._html_bottle(b);
     const still = b.mode === "still";
     return `
       <p class="eyebrow">${still ? "Durchgegoren" : "Abfüllen"}</p>
@@ -558,6 +586,33 @@ class TipsylabPanel extends HTMLElement {
       <svg class="chart" id="d-chart" viewBox="0 0 320 196" role="img" aria-label="Restzucker der letzten Tage mit Prognose"></svg>
       <button class="primary" type="button" data-act="goto-measure">+ Messung</button>
       <p class="status" id="d-status"></p>`;
+  }
+
+  _html_bottle(b) {
+    const petnat = b.mode === "petnat";
+    return `
+      <p class="eyebrow" id="f-eyebrow">In der Flasche</p>
+      <p class="answer" id="f-answer">–</p>
+      <p class="answer-sub" id="f-sub"></p>
+      <p class="say" id="f-say"></p>
+      <p class="hint" id="f-warn" hidden></p>
+      <dl class="leaders">
+        <div><dt>Abgefüllt</dt><dd id="f-bottled">–</dd></div>
+        ${
+          petnat
+            ? `<div><dt>Erwartet beim Öffnen</dt><dd id="f-expected">–</dd></div>
+               <div id="f-worst-row"><dt>Ungünstig bei 20 °C</dt><dd id="f-worst">–</dd></div>
+               <div><dt>Flaschengärung</dt><dd id="f-progress">–</dd></div>`
+            : ""
+        }
+        <div><dt>Alkohol am Ende</dt><dd id="d-abv">–</dd></div>
+      </dl>
+      <p class="fine" id="d-abv-hint" hidden></p>
+      ${petnat ? `<svg class="chart" id="f-chart" viewBox="0 0 320 170" role="img" aria-label="Druck der Messflasche bei 20 °C"></svg>` : ""}
+      <p class="fine" id="f-forecast" hidden></p>
+      ${petnat ? `<button class="primary" type="button" data-act="goto-bottle">+ Messflasche</button>` : ""}
+      <p class="status" id="f-status"></p>
+      <p class="status"><button class="link" type="button" data-act="close-batch" id="f-close">Ansatz abschließen</button></p>`;
   }
 
   _html_measure() {
@@ -727,7 +782,8 @@ class TipsylabPanel extends HTMLElement {
     this._updateHeader(b);
     if (b.mode === "charmat") this._updateTank(b);
     else {
-      this._updateToday(b);
+      if (b.bottling) this._updateBottle(b);
+      else this._updateToday(b);
       this._updateTarget(b);
     }
     this._updateMeasure(b);
@@ -810,17 +866,7 @@ class TipsylabPanel extends HTMLElement {
     this._show("d-notes", Boolean(notes));
 
     this._set("d-sugar", e.sugar != null ? `${nfs(e.sugar)} ± ${nf(e.sigma)} g/L` : "–");
-    this._set("d-abv", e.abv_end != null ? `${nf(e.abv_end)} ± ${nf(e.abv_end_sigma)} % vol` : "–");
-    let abvHint = "";
-    if (e.abv_end != null) {
-      abvHint = `<strong>Etikett ${nf(e.abv_label, e.abv_label % 1 ? 1 : 0)} % vol</strong>`;
-      if (e.abv_label_ok) abvHint += ".";
-      else if ((still || e.category === "still") && !e.abv_labs) abvHint += ", für einen Stillwein nur mit Laboranalyse.";
-      else if (e.abv_pairs > 0 || e.abv_labs > 0) abvHint += ", noch knapp: ein weiteres Messpaar oder eine Laboranalyse.";
-      else abvHint += ", noch zu unsicher: Refraktometer und Dichte an derselben Probe messen, am besten kurz vor dem Abfüllen.";
-    }
-    this._html("d-abv-hint", abvHint);
-    this._show("d-abv-hint", Boolean(abvHint));
+    this._updateAbv(e, still);
     this._set("d-rate", e.rate != null ? `${nf(e.rate)} g/L am Tag` : "–");
     if (still) this._set("d-dry", `${nf(b.settings.dry_sugar_g_l)} g/L`);
     else {
@@ -845,6 +891,104 @@ class TipsylabPanel extends HTMLElement {
     this._updateWhatIf(b);
     this._drawWindowBar(e, now);
     this._drawSugarChart(b, e, now);
+  }
+
+  _updateAbv(e, still) {
+    this._set("d-abv", e.abv_end != null ? `${nf(e.abv_end)} ± ${nf(e.abv_end_sigma)} % vol` : "–");
+    let abvHint = "";
+    if (e.abv_end != null) {
+      abvHint = `<strong>Etikett ${nf(e.abv_label, e.abv_label % 1 ? 1 : 0)} % vol</strong>`;
+      if (e.abv_label_ok) abvHint += ".";
+      else if ((still || e.category === "still") && !e.abv_labs) abvHint += ", für einen Stillwein nur mit Laboranalyse.";
+      else if (e.abv_pairs > 0 || e.abv_labs > 0) abvHint += ", noch knapp: ein weiteres Messpaar oder eine Laboranalyse.";
+      else abvHint += ", noch zu unsicher: Refraktometer und Dichte an derselben Probe messen, am besten kurz vor dem Abfüllen.";
+    }
+    this._html("d-abv-hint", abvHint);
+    this._show("d-abv-hint", Boolean(abvHint));
+  }
+
+  /* ---------- In der Flasche ---------- */
+  _updateBottle(b) {
+    const e = b.estimate || {};
+    const bt = b.bottling;
+    const f = b.bottle;
+    const bottled = new Date(bt.time);
+    const days = Math.max(0, Math.floor((Date.now() - bottled) / DAY));
+    this._set("f-eyebrow", `In der Flasche · Tag ${days}`);
+    this._set("f-bottled", `${fmtDay(bottled)} · ${nfs(bt.sugar)} ± ${nf(bt.sigma)} g/L`);
+    let answer = "ABGEFÜLLT";
+    let sub = `${fmtDay(bottled).toUpperCase()} ${fmtHM(bottled)}`;
+    let say = "Der Restzucker beim Abfüllen ist festgehalten. Messungen danach ändern ihn nicht mehr.";
+    let warn = "";
+    if (f) {
+      const last = f.readings[f.readings.length - 1];
+      this._set("f-expected", `${nf(f.expected_10)}–${nf(f.expected_20)} bar`);
+      this._html("f-worst", `${nf(f.worst_20)} bar <small>Grenze ${nf(f.limit)}</small>`);
+      this.$("f-worst-row")?.classList.toggle("warn", f.worst_20 > f.limit);
+      const pct = f.progress != null ? Math.round(Math.max(0, Math.min(1.5, f.progress)) * 100) : null;
+      this._set("f-progress", f.done ? "durch" : pct != null ? `${pct} %` : "–");
+      if (last) {
+        answer = `${nf(last[3])} BAR`;
+        sub = `BEI 20 °C · ERWARTET ${nf(f.expected_20)}`;
+        if (f.state === "danger" || f.state === "high") {
+          say = f.state === "danger" ? "Die Messflasche nähert sich der Grenze der Flasche." : "Mehr Druck als erwartet: In der Flasche gärt mehr Zucker als geschätzt.";
+          warn = f.action;
+        } else if (f.done) {
+          say = "Durchgegoren. Zum Schluss einmal bei 10 und einmal bei 20 °C ablesen, dann den Ansatz abschließen: Die Messflasche eicht das Modell für die nächsten Ansätze.";
+        } else {
+          say = `Flaschengärung zu ${pct ?? "–"} %. Läuft wie erwartet.`;
+        }
+      } else {
+        answer = "ABLESEN";
+        sub = "MESSFLASCHE";
+        say = "Die Messflasche nach 3, 7 und 14 Tagen ablesen, immer mit ihrer Temperatur. Die App rechnet auf 20 °C um.";
+      }
+      this._drawBottleChart(f, bottled);
+    }
+    this._set("f-answer", answer);
+    this._set("f-sub", sub);
+    this._set("f-say", say);
+    this._set("f-warn", warn);
+    this._show("f-warn", Boolean(warn));
+    this._updateAbv(e, b.mode === "still");
+
+    const fc = bt.forecast_check || {};
+    const parts = ["48", "24", "12"]
+      .filter((h) => fc[h])
+      .map((h) => {
+        const err = fc[h].error_h;
+        const txt = Math.abs(err) < 1 ? "genau" : `${Math.round(Math.abs(err))} h zu ${err > 0 ? "spät" : "früh"}`;
+        return `${h} h vorher ${txt}`;
+      });
+    this._set("f-forecast", parts.length ? `Prognose ${parts.join(" · ")}` : "");
+    this._show("f-forecast", parts.length > 0);
+    this._show("f-close", !b.closed);
+    this._set("f-status", b.closed ? "Abgeschlossen und im Archiv." : b.has_bottle_sensor ? "Flaschenbox verbunden" : "");
+  }
+
+  _drawBottleChart(f, bottled) {
+    const svg = this.$("f-chart");
+    if (!svg) return;
+    const W = 320;
+    const H = 170;
+    const L = 30;
+    const R = 8;
+    const T = 10;
+    const B = 22;
+    const pts = f.readings.map((r) => [(Date.parse(r[0]) - bottled) / DAY, r[3]]);
+    const span = Math.max(28, Math.ceil(Math.max(f.days, ...pts.map((p) => p[0]), 0)) + 2);
+    const top = Math.max(f.limit, ...pts.map((p) => p[1])) * 1.05;
+    const x = (d) => L + (d / span) * (W - L - R);
+    const y = (p) => T + (1 - Math.max(0, p) / top) * (H - T - B);
+    let out = "";
+    for (let p = 0; p <= top; p += 1) out += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(p)}" y2="${y(p)}"/><text x="${L - 4}" y="${y(p) + 3}" text-anchor="end">${p}</text>`;
+    for (let d = 0; d <= span; d += 7) out += `<text x="${x(d)}" y="${H - 6}" text-anchor="${d + 7 > span ? "end" : "middle"}">${d} d</text>`;
+    out += `<line class="setline" x1="${L}" x2="${W - R}" y1="${y(f.limit)}" y2="${y(f.limit)}"/><text class="targetlabel" x="${W - R}" y="${y(f.limit) - 4}" text-anchor="end">Grenze ${nf(f.limit)} bar</text>`;
+    out += `<line class="forecast" x1="${L}" x2="${W - R}" y1="${y(f.expected_20)}" y2="${y(f.expected_20)}"/><text class="label-ink" x="${L + 4}" y="${y(f.expected_20) - 4}">erwartet ${nf(f.expected_20)}</text>`;
+    if (pts.length > 1) out += `<polyline class="measured" points="${pts.map((p) => `${x(p[0])},${y(p[1])}`).join(" ")}"/>`;
+    out += pts.map((p) => `<rect class="anchor" x="${x(p[0]) - 3.5}" y="${y(p[1]) - 3.5}" width="7" height="7"/>`).join("");
+    if (!pts.length) out += `<text class="empty" x="${(L + W - R) / 2}" y="${H / 2}" text-anchor="middle">noch keine Messflasche</text>`;
+    svg.innerHTML = out;
   }
 
   _updateWhatIf(b) {
@@ -1020,7 +1164,11 @@ class TipsylabPanel extends HTMLElement {
     const rows = [];
     let msg = "";
     const p = m.preview;
-    if (m.kind === "ph" || m.kind === "bottle_pressure") msg = "Wird gespeichert und steht im Verlauf. Die Prognose ändert sich dadurch nicht.";
+    if (m.kind === "ph") msg = "Wird gespeichert und steht im Verlauf. Die Prognose ändert sich dadurch nicht.";
+    else if (m.kind === "bottle_pressure")
+      msg = b.bottling
+        ? "Zählt für die Messflasche: Die App rechnet auf 20 °C um und vergleicht mit dem erwarteten Druck."
+        : "Zählt erst nach „Abgefüllt“: Dann vergleicht die App die Messflasche mit dem erwarteten Druck.";
     else if (b.mode === "charmat" && !b.s0) msg = "Wird gespeichert. Beim Charmat rechnet die App mit Tankdruck und Temperatur.";
     else if (!p) msg = "Wert eintippen, dann steht hier, was er ändert.";
     else if (p.error) msg = `Lässt sich nicht auswerten: ${p.error}`;
@@ -1099,7 +1247,9 @@ class TipsylabPanel extends HTMLElement {
       ? items
           .map((x) => {
             const t = new Date(x.time);
-            return `<li><time datetime="${esc(x.time)}">${fmtDay(t)} ${fmtHM(t)}</time><span>${text(x)}${x.note ? ` <small>${esc(x.note)}</small>` : ""}</span></li>`;
+            const key = `${x.kind}|${x.time}`;
+            const armed = this._delArmed === key;
+            return `<li><time datetime="${esc(x.time)}">${fmtDay(t)} ${fmtHM(t)}</time><span>${text(x)}${x.note ? ` <small>${esc(x.note)}</small>` : ""}</span><button class="del${armed ? " armed" : ""}" type="button" data-act="del" data-kind="${esc(x.kind)}" data-time="${esc(x.time)}" aria-label="${armed ? "Wirklich löschen" : "Eintrag löschen"}">${armed ? "löschen?" : "×"}</button></li>`;
           })
           .join("")
       : `<li><span class="fine">Noch nichts eingetragen.</span></li>`;
@@ -1218,6 +1368,102 @@ class TipsylabPanel extends HTMLElement {
     await this._fetch();
   }
 
+  async _deleteEntry(kind, time) {
+    const b = this._current();
+    const key = `${kind}|${time}`;
+    if (this._delArmed !== key) {
+      this._delArmed = key; // erster Tipp: nachfragen
+      this._drawLog(b);
+      return;
+    }
+    this._delArmed = null;
+    try {
+      await this._hass.callService("tipsylab", "remove_entry", { config_entry_id: b.entry_id, kind, time });
+      this._ev.toast = "Gelöscht.";
+    } catch (err) {
+      this._ev.toast = `Nicht gelöscht: ${errText(err)}`;
+    }
+    this._updateMeasure(this._current());
+    await this._fetch();
+  }
+
+  async _closeBatch(el) {
+    if (!el.classList.contains("armed")) {
+      el.classList.add("armed");
+      el.textContent = "Wirklich abschließen? Ins Archiv";
+      return;
+    }
+    const b = this._current();
+    try {
+      await this._hass.callService("tipsylab", "add_event", { config_entry_id: b.entry_id, kind: "closed" });
+    } catch (err) {
+      el.textContent = `Nicht abgeschlossen: ${errText(err)}`;
+      return;
+    }
+    await this._fetch();
+  }
+
+  /* ---------- Archiv ---------- */
+  _buildArchive(root) {
+    root.innerHTML = `
+      <header class="top">${this._menuButton()}<span class="logo" aria-hidden="true"></span>
+        <div class="batch"><span class="kicker">TIPSYLAB</span><b>Archiv</b></div></header>
+      <section class="screen solo" style="margin-top:18px">
+        <p class="eyebrow">Was wir gelernt haben</p>
+        <dl class="leaders" id="a-learned"></dl>
+        <p class="fine" id="a-learned-note"></p>
+        <p class="eyebrow">Frühere Ansätze</p>
+        <div id="a-list"></div>
+        <button class="primary" type="button" data-act="archive-back">Zurück</button>
+      </section>`;
+    this._wireMenu();
+  }
+
+  _updateArchive() {
+    const h = this._house || { values: {}, archive: [] };
+    const v = h.values || {};
+    const rows = [];
+    const learned = (x) => (x && x.n ? `<small>aus ${x.n} ${x.n === 1 ? "Ansatz" : "Ansätzen"}</small>` : "<small>Startwert</small>");
+    if (v.saturation) rows.push(["CO₂ beim Abfüllen", `${Math.round(v.saturation.mean * 100)} ± ${Math.round(v.saturation.sigma * 100)} % ${learned(v.saturation)}`]);
+    if (v.g_sugar_per_abv) rows.push(["Zucker je % vol", `${nf(v.g_sugar_per_abv.mean)} ± ${nf(v.g_sugar_per_abv.sigma)} g/L ${learned(v.g_sugar_per_abv)}`]);
+    this._html("a-learned", rows.map(([dt, dd]) => `<div><dt>${dt}</dt><dd>${dd}</dd></div>`).join(""));
+    const any = Object.values(v).some((x) => x.n);
+    this._set(
+      "a-learned-note",
+      any
+        ? "Gelöstes CO₂ beim Abfüllen in % der Sättigung, aus durchgegorenen Messflaschen; Zucker je % vol aus Laborwerten. Neue Ansätze rechnen damit."
+        : "Noch Startwerte aus der Literatur. Durchgegorene Messflaschen und Laborwerte von abgeschlossenen Ansätzen eichen sie.",
+    );
+    const list = (h.archive || []).map((r) => {
+      const start = toDate(r.start);
+      const closed = toDate(r.closed);
+      const bt = r.bottling;
+      const bo = r.bottle;
+      const last = bo?.readings?.[bo.readings.length - 1];
+      const fc = bt?.forecast_check?.["48"];
+      const dl = [];
+      if (bt) dl.push(["Abgefüllt bei", `${nfs(bt.sugar)} ± ${nf(bt.sigma)} g/L`]);
+      if (bo) dl.push(last ? ["Messflasche 20 °C", `${nf(last[3])} bar <small>erwartet ${nf(bo.expected_20)}</small>`] : ["Erwartet bei 20 °C", `${nf(bo.expected_20)} bar`]);
+      if (fc) dl.push(["Prognose 48 h vorher", Math.abs(fc.error_h) < 1 ? "genau" : `${Math.round(Math.abs(fc.error_h))} h zu ${fc.error_h > 0 ? "spät" : "früh"}`]);
+      if (r.abv) dl.push(["Alkohol", `${nf(r.abv.value)} ± ${nf(r.abv.sigma)} % vol <small>Etikett ${nf(r.abv.label, r.abv.label % 1 ? 1 : 0)}</small>`]);
+      return `<article class="arch"><p class="arch-title"><b>${esc(r.name)}</b> <small>${MODE_LABEL[r.mode] || esc(r.mode)} · ${start ? fmtDay(start) : ""}–${closed ? fmtDay(closed) : ""} ${closed ? closed.getFullYear() : ""}</small></p>
+        ${this._sparkline(r.series || [])}
+        <dl class="leaders">${dl.map(([dt, dd]) => `<div><dt>${dt}</dt><dd>${dd}</dd></div>`).join("")}</dl></article>`;
+    });
+    this._html("a-list", list.length ? list.join("") : `<p class="fine">Noch kein Ansatz abgeschlossen. „Ansatz abschließen“ steht nach dem Abfüllen unter „Heute“.</p>`);
+  }
+
+  _sparkline(series) {
+    if (series.length < 2) return "";
+    const W = 320;
+    const H = 46;
+    const t0 = Date.parse(series[0][0]);
+    const t1 = Date.parse(series[series.length - 1][0]);
+    const top = Math.max(...series.map((p) => p[1]), 1);
+    const pts = series.map((p) => `${((Date.parse(p[0]) - t0) / Math.max(1, t1 - t0)) * (W - 4) + 2},${(1 - p[1] / top) * (H - 6) + 3}`);
+    return `<svg class="chart spark" viewBox="0 0 ${W} ${H}" role="img" aria-label="Restzucker über die Gärung"><polyline class="measured" points="${pts.join(" ")}"/></svg>`;
+  }
+
   /* ---------- Ziel ---------- */
   _updateTarget(b) {
     const s = b.settings;
@@ -1259,12 +1505,13 @@ class TipsylabPanel extends HTMLElement {
     if (b.mode === "petnat") {
       const bottle = P.BOTTLES[t.bottle] || P.BOTTLES[750];
       const mal = t.malo ? t.malic : 0;
-      const sMid = P.sugarForPressure(t.target, 20, bottle, P.FILL.mid, mal);
-      const sWorst = P.sugarForPressure(t.target, 20, bottle, P.FILL.worst, mal);
-      const sMild = P.sugarForPressure(t.target, 20, bottle, P.FILL.mild, mal);
-      const p10 = P.bottlePressure(sMid, 10, bottle, P.FILL.mid, mal);
-      const p20 = P.bottlePressure(sMid, 20, bottle, P.FILL.mid, mal);
-      const worst = P.bottlePressure(sMid, 20, bottle, P.FILL.worst, mal);
+      const fill = P.fills(b.settings.saturation ?? P.FILL.mid.sat); // gelernte Sättigung beim Abfüllen
+      const sMid = P.sugarForPressure(t.target, 20, bottle, fill.mid, mal);
+      const sWorst = P.sugarForPressure(t.target, 20, bottle, fill.worst, mal);
+      const sMild = P.sugarForPressure(t.target, 20, bottle, fill.mild, mal);
+      const p10 = P.bottlePressure(sMid, 10, bottle, fill.mid, mal);
+      const p20 = P.bottlePressure(sMid, 20, bottle, fill.mid, mal);
+      const worst = P.bottlePressure(sMid, 20, bottle, fill.worst, mal);
       this._set("t-big", `${nf(p10)}–${nf(t.target)} BAR`);
       this._set("t-out", `${nf(t.target)} bar bei 20 °C`);
       const cat = P.euCategory(t.target);
@@ -1419,6 +1666,26 @@ class TipsylabPanel extends HTMLElement {
       case "goto-measure":
         this._setTab("measure");
         this.$("m-value")?.focus();
+        break;
+      case "goto-bottle":
+        Object.assign(this._m, { kind: "bottle_pressure", value2: "", preview: null, toast: "" });
+        this._setTab("measure");
+        this._updateMeasure(b);
+        this.$("m-value")?.focus();
+        break;
+      case "del":
+        this._deleteEntry(el.dataset.kind, el.dataset.time);
+        break;
+      case "close-batch":
+        this._closeBatch(el);
+        break;
+      case "archive":
+        this._archive = true;
+        this._render();
+        break;
+      case "archive-back":
+        this._archive = false;
+        this._render();
         break;
       case "mkind": {
         // Das zweite Feld bedeutet je Messart etwas anderes (Dichte oder Alkohol): beim Wechsel leeren
