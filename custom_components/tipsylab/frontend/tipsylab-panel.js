@@ -24,7 +24,12 @@ const KINDS = {
     unit: null,
     help: "Hydrometer oder Dichtemeter, auf 20 °C bezogen. Unter 1,000 wird Oechsle negativ.",
   },
-  sugar: { label: "Labor", unit: "g/L", placeholder: "14", help: "Laborwert Restzucker (Glucose + Fructose)." },
+  sugar: {
+    label: "Labor",
+    unit: "g/L",
+    placeholder: "14",
+    help: "Laborwert Restzucker (Glucose + Fructose). Steht im Befund auch der Alkohol, unten eintragen: Das macht den Alkohol fürs Etikett genau.",
+  },
   malic: {
     label: "Äpfelsäure",
     unit: "g/L",
@@ -571,7 +576,7 @@ class TipsylabPanel extends HTMLElement {
       </div>
       <p class="fine" id="m-help"></p>
       <div class="field" id="m-value2-row">
-        <label for="m-value2">Dichte derselben Probe (optional)</label>
+        <label for="m-value2" id="m-value2-label">Dichte derselben Probe (optional)</label>
         <input id="m-value2" data-in="mval2" type="text" inputmode="decimal" autocomplete="off" value="${esc(m.value2)}">
         <span id="m-unit2"></span>
       </div>
@@ -810,8 +815,8 @@ class TipsylabPanel extends HTMLElement {
     if (e.abv_end != null) {
       abvHint = `<strong>Etikett ${nf(e.abv_label, e.abv_label % 1 ? 1 : 0)} % vol</strong>`;
       if (e.abv_label_ok) abvHint += ".";
-      else if (still || e.category === "still") abvHint += ", für einen Stillwein nur mit Laboranalyse.";
-      else if (e.abv_pairs > 0) abvHint += ", noch knapp: ein weiteres Messpaar oder eine Laboranalyse.";
+      else if ((still || e.category === "still") && !e.abv_labs) abvHint += ", für einen Stillwein nur mit Laboranalyse.";
+      else if (e.abv_pairs > 0 || e.abv_labs > 0) abvHint += ", noch knapp: ein weiteres Messpaar oder eine Laboranalyse.";
       else abvHint += ", noch zu unsicher: Refraktometer und Dichte an derselben Probe messen, am besten kurz vor dem Abfüllen.";
     }
     this._html("d-abv-hint", abvHint);
@@ -1004,10 +1009,12 @@ class TipsylabPanel extends HTMLElement {
     const input = this.$("m-value");
     if (input) input.placeholder = density ? DENSITY_UNITS[m.unit].placeholder : kind.placeholder;
     this._set("m-help", kind.help);
-    this._show("m-value2-row", m.kind === "brix");
-    this._set("m-unit2", DENSITY_UNITS[m.unit].label);
+    const lab = m.kind === "sugar";
+    this._show("m-value2-row", m.kind === "brix" || lab);
+    this._set("m-value2-label", lab ? "Alkohol derselben Probe (optional)" : "Dichte derselben Probe (optional)");
+    this._set("m-unit2", lab ? "% vol" : DENSITY_UNITS[m.unit].label);
     const value2 = this.$("m-value2");
-    if (value2) value2.placeholder = DENSITY_UNITS[m.unit].placeholder;
+    if (value2) value2.placeholder = lab ? "11,5" : DENSITY_UNITS[m.unit].placeholder;
     this._show("m-temp-row", m.kind === "bottle_pressure");
 
     const rows = [];
@@ -1026,8 +1033,8 @@ class TipsylabPanel extends HTMLElement {
     } else if (p.plausible === false) msg = "Der Wert passt nicht zu diesem Ansatz. Einheit prüfen?";
     else if (p.sugar != null) {
       rows.push(["Restzucker", `${nfs(p.sugar)} g/L${p.prev_sugar != null ? ` <small>war ${nfs(p.prev_sugar)}</small>` : ""}`]);
-      if (p.abv_pair != null) {
-        rows.push(["Alkohol jetzt", `${nf(p.abv_pair)} % vol <small>gemessen</small>`]);
+      if (p.abv_measured != null) {
+        rows.push(["Alkohol jetzt", `${nf(p.abv_measured)} % vol <small>gemessen</small>`]);
         if (p.abv_end != null) {
           const before = p.prev_abv_end_sigma != null ? nf(p.prev_abv_end_sigma) : null;
           const was = before != null && before !== nf(p.abv_end_sigma) ? ` <small>war ± ${before}</small>` : "";
@@ -1077,7 +1084,7 @@ class TipsylabPanel extends HTMLElement {
         case "density":
           return `Dichte ${dens(x.value)}`;
         case "sugar":
-          return `Labor ${nf(x.value)} g/L`;
+          return `Labor ${nf(x.value)} g/L${x.value2 != null ? ` + ${nf(x.value2)} % vol` : ""}`;
         case "malic":
           return `Äpfelsäure ${nf(x.value)} g/L`;
         case "ph":
@@ -1112,6 +1119,7 @@ class TipsylabPanel extends HTMLElement {
     if (m.kind === "density") data.unit = m.unit;
     const value2 = num(m.value2);
     if (m.kind === "brix" && Number.isFinite(value2)) Object.assign(data, { kind: "brix_density", value2, unit: m.unit });
+    if (m.kind === "sugar" && Number.isFinite(value2)) data.value2 = value2;
     return data;
   }
 
@@ -1412,11 +1420,16 @@ class TipsylabPanel extends HTMLElement {
         this._setTab("measure");
         this.$("m-value")?.focus();
         break;
-      case "mkind":
-        Object.assign(this._m, { kind: el.dataset.kind, preview: null, toast: "" });
+      case "mkind": {
+        // Das zweite Feld bedeutet je Messart etwas anderes (Dichte oder Alkohol): beim Wechsel leeren
+        const v2 = el.dataset.kind !== this._m.kind ? "" : this._m.value2;
+        Object.assign(this._m, { kind: el.dataset.kind, value2: v2, preview: null, toast: "" });
+        const input2 = this.$("m-value2");
+        if (input2) input2.value = v2;
         this._updateMeasure(b);
         this._schedulePreview();
         break;
+      }
       case "munit":
         this._m.unit = el.dataset.unit;
         this._updateMeasure(b);
