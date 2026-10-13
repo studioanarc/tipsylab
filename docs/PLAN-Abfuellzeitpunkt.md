@@ -14,7 +14,8 @@ Dieser Ordner (`Tipsy/tipsylab/`) ist als künftiges Projekt-Repo gedacht:
 - Firmware: Legacy-Topics sind nur bei neuen Geräten aus; ein aktualisiertes Gerät behält seine Einstellung.
 - Waage (11.10.): eine Wägezelle unter einem von drei Tankbeinen reicht, weil drei Beine die Last eindeutig verteilen; geeicht wird mit einem Testgewicht in der Deckelmitte oder über die Messungen. Gelöstes CO₂ und Proben rechnet die Integration heraus.
 - Alkohol (12.10.): Die App zeigt den Alkohol in der fertigen Flasche mit Unsicherheit und Etikettwert; Messpaare aus Refraktometer und Dichte eichen ihn (Abschnitt 2.10).
-- Noch offen: Phase 3, Phase 5, ein Laborwert in % vol als Messart (würde den Umrechnungsfaktor pro Haus eichen) und der Feed für die DataWein-Seite.
+- Laborwert (13.10.): Die Messart „Labor“ nimmt neben dem Restzucker den Alkohol derselben Probe an; er macht den Alkohol fürs Etikett genau (Abschnitt 2.10).
+- Noch offen: Phase 3, Phase 5 und der Feed für die DataWein-Seite.
 
 **Rahmenbedingungen (von dir):**
 - Nur Pet Nat und Naturwein, kein Bier. Charmat als Option.
@@ -320,8 +321,11 @@ Beide Wege teilen sich den vergärbaren Anteil: Wie viel vom Restzucker noch ver
 | ein Messpaar kurz vor dem Abfüllen | 0,37 % vol |
 | mehrere Messpaare | 0,34–0,36 % vol |
 | ein Messpaar am trockenen Wein | 0,31 % vol |
+| ein Laborbefund (Alkohol und Restzucker derselben Probe) | 0,1 % vol |
 
 **Etikett (VO (EU) 2019/33, Art. 44):** Angegeben wird in ganzen oder halben % vol. Die Analyse darf höchstens ±0,5 % vol abweichen, bei Schaum- und Perlwein ±0,8 % vol; ein Pet Nat unter 1 bar ist Stillwein. Die App rundet auf halbe % vol und nennt den Etikettwert sicher, wenn der wahre Wert mit 95 % Wahrscheinlichkeit in der Toleranz liegt. Beim Pet Nat reicht dafür meist ein Messpaar kurz vor dem Abfüllen. Beim Stillwein reicht es ohne Labor nicht.
+
+**Laborbefund:** Bei der Messart „Labor“ lässt sich neben dem Restzucker der Alkohol derselben Probe eintragen. Er zählt als dritter Weg mit ±0,1 % vol (Laboranalyse) und ±0,5 g/L Zucker; der Rest bis trocken kommt wie beim Messpaar im bisherigen Verhältnis dazu. Damit ist der Etikettwert auch beim Stillwein sicher.
 
 ---
 
