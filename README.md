@@ -47,7 +47,9 @@ Hintergrund, Physik und Entscheidungen: [docs/PLAN-Abfuellzeitpunkt.md](docs/PLA
 
 - **Pet Nat:** Restzucker aus Refraktometer, Dichte oder Labor, fortgeschrieben mit Spindel,
   Blasen und Gewicht. Die Prognose rechnet in thermischer Zeit, so dass Kühlen und
-  Temperaturplan das Fenster verschieben. Ergebnis: Abfüllfenster mit Unsicherheit, DUB, Druck
+  Temperaturplan das Fenster verschieben, und streut per Monte Carlo Restzucker, Gärrate, Q10 und
+  Kellertemperatur: Das Fenster ist P10–P90, im Simulator geeicht. Eine Messung wird empfohlen, wenn
+  sie das Fenster deutlich enger macht. Ergebnis: Abfüllfenster mit Unsicherheit, DUB, Druck
   beim Öffnen bei 10 und 20 °C, Prüfung der Flaschengrenze im ungünstigen Fall (330 ml 4,5 bar,
   750 ml 6 bar), Malo in der Flasche als Option, Alkohol in der Flasche mit Unsicherheit und
   Etikettwert.
@@ -124,13 +126,12 @@ Anleitung in [`tools/panel-vorschau/index.html`](tools/panel-vorschau/index.html
 
 ## Stand
 
-Umgesetzt: Integration mit Panel, Prognose Stufe 1, Druckmodell, Gewicht als Quelle, Alkohol fürs
-Etikett; nach dem Abfüllen Messflasche mit Alarm, Archiv, Nachkalkulation und Hauswerte; Gärbox-
-Firmware 2.2 mit Display und optionaler Waage; ESPHome für Tank-, Waage-, Flaschen- und
-Kellerluftbox; Heizbox-Skript; Blueprints.
+Umgesetzt: Integration mit Panel, Prognose mit Monte-Carlo-Fenster, Druckmodell, Gewicht als
+Quelle, Alkohol fürs Etikett; nach dem Abfüllen Messflasche mit Alarm, Archiv, Nachkalkulation und
+Hauswerte; Gärbox-Firmware 2.2 mit Display und optionaler Waage; ESPHome für Tank-, Waage-,
+Flaschen- und Kellerluftbox; Heizbox-Skript; Blueprints.
 
-Noch offen: das probabilistische Modell (Phase 3 im Plan; in der Simulation kommt die Prognose der
-Stufe 1 einige Stunden zu spät) und der öffentliche Feed für die DataWein-Seite.
+Noch offen: der öffentliche Feed für die DataWein-Seite.
 
 Geprüft ist, was ohne Hardware geht: Tests gegen einen Simulator mit bekannter Wahrheit, Builds,
 Konfigurationsprüfung, das Panel im Browser mit echten Daten der Integration, das Shelly-Skript in
