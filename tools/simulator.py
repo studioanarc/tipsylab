@@ -19,6 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "custom_components", "tipsylab"))
 
+from core.bottling import fill_conditions, pressure_from_co2
 from core.composition import (
     DSG_ETHANOL,
     FERMENTABLE_FRACTION,
@@ -27,7 +28,7 @@ from core.composition import (
     WineModel,
 )
 from core.fermentation import thermal_factor
-from core.physics import YIELD_CO2_SUGAR, henry
+from core.physics import BOTTLES, YIELD_CO2_MALIC, YIELD_CO2_SUGAR, henry
 
 
 @dataclass
@@ -161,6 +162,36 @@ def simulate(cfg: SimConfig | None = None, start: datetime | None = None) -> Sim
         n = min(n, cfg.max_bubbles_per_min * cfg.step_min)
         bubbles += max(0.0, n)
     return res
+
+
+def simulate_bottle(
+    sugar: float,
+    saturation: float = 0.8,
+    start: datetime | None = None,
+    days: tuple[float, ...] = (3, 7, 14, 21, 28, 35),
+    temp_c: float | tuple[float, ...] = 14.0,
+    bottle: str = "750",
+    malic: float = 0.0,
+    t_bottling_c: float = 12.0,
+    half_life_days: float = 4.0,
+    noise_bar: float = 0.05,
+    seed: int = 7,
+) -> list[tuple[datetime, float, float]]:
+    """Messflasche mit bekannter Wahrheit: Der Restzucker vergärt in der Flasche mit erster Ordnung.
+
+    Liefert Ablesungen (Zeit, Überdruck bar, Temperatur °C) an den gegebenen Tagen nach dem Abfüllen.
+    """
+    rng = random.Random(seed)
+    start = start or datetime(2026, 9, 20, 10, 0)
+    fill = fill_conditions(saturation, t_bottling_c)[0]
+    temps = temp_c if isinstance(temp_c, tuple) else (temp_c,) * len(days)
+    out = []
+    for d, t_c in zip(days, temps):
+        done = 1.0 - 0.5 ** (d / half_life_days)
+        co2 = saturation * henry(t_bottling_c) + done * (YIELD_CO2_SUGAR * sugar + YIELD_CO2_MALIC * malic)
+        p = pressure_from_co2(co2, t_c, BOTTLES[bottle], fill) + rng.gauss(0, noise_bar)
+        out.append((start + timedelta(days=d), p, t_c))
+    return out
 
 
 if __name__ == "__main__":

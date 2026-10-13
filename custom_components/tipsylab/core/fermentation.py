@@ -26,12 +26,13 @@ from itertools import pairwise
 import math
 from statistics import median
 
-from .composition import ABV_TOLERANCE_SPARKLING, ABV_TOLERANCE_STILL, BottleAbv, WineModel, bottle_abv
+from .bottling import fill_conditions
+from .composition import ABV_PARAM_SIGMA, ABV_TOLERANCE_SPARKLING, ABV_TOLERANCE_STILL, BottleAbv, WineModel, bottle_abv
 from .physics import (
     BOTTLES,
     FILL_MID,
-    FILL_WORST,
     YIELD_CO2_SUGAR,
+    FillConditions,
     bottle_pressure,
     eu_category,
     henry,
@@ -82,6 +83,8 @@ class Settings:
     q10: float = 2.2
     dry_sugar_g_l: float = 2.0
     volume_l: float | None = None  # für die Waage: Gewichtsverlust je Liter
+    saturation: float = FILL_MID.saturation  # gelöstes CO2 beim Abfüllen relativ zur Sättigung (Hauswert)
+    g_sugar_per_abv_sigma: float = ABV_PARAM_SIGMA["g_sugar_per_abv"]  # Unsicherheit des Umrechnungsfaktors
     # Temperaturplan: Schritte (ab Restzucker g/L oder None für den Start, °C), z. B.
     # ((None, 20.0), (25.0, 14.0)) = 20 °C, ab 25 g/L 14 °C
     temp_plan: tuple[tuple[float | None, float], ...] = ()
@@ -89,10 +92,18 @@ class Settings:
     def malic(self) -> float:
         return self.malic_g_l if self.malo_in_bottle else 0.0
 
+    @property
+    def fill_mid(self) -> FillConditions:
+        return fill_conditions(self.saturation)[0]
+
+    @property
+    def fill_worst(self) -> FillConditions:
+        return fill_conditions(self.saturation)[1]
+
     def target_sugar(self) -> float:
         if self.mode == "still":
             return self.dry_sugar_g_l
-        return sugar_for_pressure(self.target_bar_20c, 20.0, BOTTLES[self.bottle], FILL_MID, self.malic())
+        return sugar_for_pressure(self.target_bar_20c, 20.0, BOTTLES[self.bottle], self.fill_mid, self.malic())
 
     def planned_temp(self, sugar: float, default: float | None) -> float | None:
         temp = default
@@ -443,6 +454,7 @@ def estimate(
     bubbles: list[tuple[datetime, float]] | None = None,
     temps: list[tuple[datetime, float]] | None = None,
     weight: list[tuple[datetime, float]] | None = None,
+    abv_now: datetime | None = None,
 ) -> Estimate:
     est = Estimate(now=now)
     temp_s = Series(temps)
@@ -455,20 +467,25 @@ def estimate(
     est.target_sugar = target
     if settings.mode == "petnat":
         b, mal = BOTTLES[settings.bottle], settings.malic()
-        est.p_target_10 = bottle_pressure(target, 10, b, FILL_MID, mal)
-        est.p_target_20 = bottle_pressure(target, 20, b, FILL_MID, mal)
-        est.p_worst_20 = bottle_pressure(target, 20, b, FILL_WORST, mal)
+        est.p_target_10 = bottle_pressure(target, 10, b, settings.fill_mid, mal)
+        est.p_target_20 = bottle_pressure(target, 20, b, settings.fill_mid, mal)
+        est.p_worst_20 = bottle_pressure(target, 20, b, settings.fill_worst, mal)
         est.limit_ok = est.p_worst_20 <= b.limit_bar
         est.category = eu_category(settings.target_bar_20c)
 
     # Alkohol in der Flasche: braucht nur Most, Endzucker und Messpaare, steht also ab dem Start
-    abv_pairs = [a.pair for a in anchors or [] if a.pair is not None and a.t <= now]
-    abv_labs = [(a.abv, a.sugar) for a in anchors or [] if a.abv is not None and a.t <= now]
+    abv_until = abv_now or now  # nach dem Abfüllen zählen Proben aus der Flasche weiter
+    abv_pairs = [a.pair for a in anchors or [] if a.pair is not None and a.t <= abv_until]
+    abv_labs = [(a.abv, a.sugar) for a in anchors or [] if a.abv is not None and a.t <= abv_until]
     abv_tol = ABV_TOLERANCE_SPARKLING if settings.mode == "petnat" and est.category != "still" else ABV_TOLERANCE_STILL
-    _set_bottle_abv(est, bottle_abv(model, settings.dry_sugar_g_l, abv_pairs, abv_tol, abv_labs))
+    abv_sigmas = {"g_sugar_per_abv": settings.g_sugar_per_abv_sigma}
+    _set_bottle_abv(est, bottle_abv(model, settings.dry_sugar_g_l, abv_pairs, abv_tol, abv_labs, abv_sigmas))
 
     anc = sorted([Anchor(start, model.s0, SIGMA["start"], "start"), *(anchors or [])], key=lambda a: a.t)
     anc = [a for a in anc if a.t <= now]
+    if not anc:  # gerechnet für einen Zeitpunkt vor dem Gärbeginn
+        est.status = "waiting"
+        return est
     last = anc[-1]
 
     def tau(t: datetime) -> float:
@@ -557,7 +574,7 @@ def estimate(
     est.sugar, est.sigma = s_now, sigma
     est.abv = model.abv(s_now)
     if s_now < settings.dry_sugar_g_l:  # trockener als angenommen: dann endet die Gärung hier
-        _set_bottle_abv(est, bottle_abv(model, s_now, abv_pairs, abv_tol, abv_labs))
+        _set_bottle_abv(est, bottle_abv(model, s_now, abv_pairs, abv_tol, abv_labs, abv_sigmas))
     est.series = sorted([*points, (now, s_now, sigma)], key=lambda p: p[0])
     est.planned_temp = settings.planned_temp(s_now, temp_now)
 
@@ -592,8 +609,8 @@ def estimate(
     # --- Druck --------------------------------------------------------------------------------
     if settings.mode == "petnat":
         b, mal = BOTTLES[settings.bottle], settings.malic()
-        est.p_now_10 = bottle_pressure(s_now, 10, b, FILL_MID, mal)
-        est.p_now_20 = bottle_pressure(s_now, 20, b, FILL_MID, mal)
+        est.p_now_10 = bottle_pressure(s_now, 10, b, settings.fill_mid, mal)
+        est.p_now_20 = bottle_pressure(s_now, 20, b, settings.fill_mid, mal)
 
     # --- Status -------------------------------------------------------------------------------
     if still and s_now <= settings.dry_sugar_g_l + 0.5:

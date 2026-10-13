@@ -23,6 +23,17 @@ export const FILL = {
   mild: { sat: 0.6, air: 0.0, tFill: 12 },
 };
 
+// Wie fill_conditions in core/bottling.py: mittel, ungünstig, mild für eine gelernte Sättigung.
+// Der ungünstige Fall wird nie milder als FILL.worst und liegt immer mindestens 0,2 darüber.
+export const WORST_SATURATION_MARGIN = 0.2;
+export function fills(sat = FILL.mid.sat, tFill = FILL.mid.tFill) {
+  return {
+    mid: { ...FILL.mid, sat, tFill },
+    worst: { ...FILL.worst, sat: Math.max(FILL.worst.sat, sat + WORST_SATURATION_MARGIN), tFill },
+    mild: { ...FILL.mild, sat: Math.max(0, Math.min(FILL.mild.sat, sat - WORST_SATURATION_MARGIN)), tFill },
+  };
+}
+
 export function bottlePressure(sugar, tC, bottle = BOTTLES[750], fill = FILL.mid, malic = 0) {
   const c0 = fill.sat * henry(fill.tFill);
   const m = bottle.wine * (c0 + YIELD_CO2_SUGAR * Math.max(0, sugar) + YIELD_CO2_MALIC * Math.max(0, malic));

@@ -207,3 +207,9 @@ def test_weight_with_all_sources_stays_on_truth():
     sim = simulate(SimConfig())
     est = run(sim, 9, Settings(temp_plan=PLAN, volume_l=50.0), weight=True)
     assert est.sugar == pytest.approx(sim.sugar_at(sim.start + timedelta(days=9)), abs=2.5)
+
+
+def test_before_the_start_there_is_nothing_to_estimate(sim):
+    e = estimate(sim.model, Settings(), sim.start, sim.start - timedelta(days=1))
+    assert e.status == "waiting"
+    assert e.sugar is None

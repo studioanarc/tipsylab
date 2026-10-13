@@ -7,6 +7,7 @@ import subprocess
 
 import pytest
 
+from core.bottling import fill_conditions
 from core.fermentation import thermal_factor
 from core.physics import (
     BOTTLES,
@@ -28,7 +29,7 @@ FILLS = {"mid": FILL_MID, "worst": FILL_WORST, "mild": FILL_MILD}
 
 SCRIPT = """
 import * as P from "./physics.mjs";
-const out = {henry: [], pressure: [], sugar: [], malo: [], cat: [], charmat: [], dissolved: [], thermal: []};
+const out = {henry: [], pressure: [], sugar: [], malo: [], cat: [], charmat: [], dissolved: [], thermal: [], fills: []};
 for (const t of [0, 10, 12, 20, 25, 30]) out.henry.push(P.henry(t));
 for (const b of ["330", "750"]) for (const f of ["mid", "worst", "mild"]) for (const s of [0, 4, 6.5, 12, 24])
   for (const t of [10, 20]) for (const mal of [0, 2]) out.pressure.push(P.bottlePressure(s, t, P.BOTTLES[b], P.FILL[f], mal));
@@ -39,12 +40,14 @@ for (const p of [0.5, 1, 2.5, 2.7, 3, 3.4, 3.5, 5]) out.cat.push(P.euCategory(p)
 for (const p of [2, 2.5, 4]) for (const t of [8, 12, 18]) out.charmat.push(P.charmatSetpoint(P.charmatCo2Target(p, 0.08), t));
 for (const p of [0, 1.8, 4]) for (const t of [8, 15]) out.dissolved.push(P.dissolvedCo2(p, t));
 for (const t of [null, 10, 15, 20]) out.thermal.push(P.thermalFactor(t, 2.2));
+for (const sat of [0.5, 0.8, 1.1]) for (const f of ["mid", "worst", "mild"])
+  out.fills.push(P.bottlePressure(6.5, 20, P.BOTTLES["750"], P.fills(sat, 14)[f], 0));
 console.log(JSON.stringify(out));
 """
 
 
 def python_values() -> dict:
-    out: dict = {k: [] for k in ("henry", "pressure", "sugar", "malo", "cat", "charmat", "dissolved", "thermal")}
+    out: dict = {k: [] for k in ("henry", "pressure", "sugar", "malo", "cat", "charmat", "dissolved", "thermal", "fills")}
     out["henry"] = [henry(t) for t in (0, 10, 12, 20, 25, 30)]
     for b in ("330", "750"):
         for f in ("mid", "worst", "mild"):
@@ -61,6 +64,9 @@ def python_values() -> dict:
     out["charmat"] = [charmat_setpoint(charmat_co2_target(p, 0.08), t) for p in (2, 2.5, 4) for t in (8, 12, 18)]
     out["dissolved"] = [dissolved_co2(p, t) for p in (0, 1.8, 4) for t in (8, 15)]
     out["thermal"] = [thermal_factor(t, 2.2) for t in (None, 10, 15, 20)]
+    for sat in (0.5, 0.8, 1.1):
+        for fill in fill_conditions(sat, 14.0):
+            out["fills"].append(bottle_pressure(6.5, 20, BOTTLES["750"], fill, 0))
     return out
 
 

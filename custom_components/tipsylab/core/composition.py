@@ -226,6 +226,7 @@ def bottle_abv(
     pairs: list[tuple[float, float]] | tuple[tuple[float, float], ...] = (),
     tolerance: float = ABV_TOLERANCE_SPARKLING,
     labs: list[tuple[float, float]] | tuple[tuple[float, float], ...] = (),
+    sigmas: dict[str, float] | None = None,
 ) -> BottleAbv:
     """Alkohol in der Flasche nach vollständiger Vergärung bis dry_sugar.
 
@@ -245,7 +246,7 @@ def bottle_abv(
             for j in range(n):
                 cov[i][j] += d[i] * d[j]
 
-    for name, sig in ABV_PARAM_SIGMA.items():
+    for name, sig in {**ABV_PARAM_SIGMA, **(sigmas or {})}.items():
         v = getattr(model, name)
         hi = _final_abvs(replace(model, **{name: v + sig}), dry_sugar, used, used_labs)
         lo = _final_abvs(replace(model, **{name: v - sig}), dry_sugar, used, used_labs)
