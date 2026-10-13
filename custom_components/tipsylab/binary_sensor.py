@@ -1,9 +1,10 @@
-"""Binäre Sensoren: im Fenster, Messung empfohlen, Flaschengrenze, Sicherheitsabstand."""
+"""Binäre Sensoren: im Fenster, Messung empfohlen, Flaschengrenze, Sicherheitsabstand, Messflasche."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -21,6 +22,7 @@ from .entity import TipsylabEntity
 @dataclass(frozen=True, kw_only=True)
 class TipsylabBinaryDescription(BinarySensorEntityDescription):
     value_fn: Callable[[BatchResult], bool | None]
+    attrs_fn: Callable[[BatchResult], dict[str, Any]] | None = None
     modes: tuple[str, ...] = ("petnat", "still")
 
 
@@ -51,6 +53,14 @@ BINARY_SENSORS: tuple[TipsylabBinaryDescription, ...] = (
         value_fn=lambda r: (not r.charmat.margin_ok) if r.charmat else None,
         modes=("charmat",),
     ),
+    TipsylabBinaryDescription(
+        key="flaschendruck_alarm",
+        translation_key="flaschendruck_alarm",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        value_fn=lambda r: bool(r.bottle and r.bottle.alarm),
+        attrs_fn=lambda r: {"handlung": r.bottle.action if r.bottle else "", "stufe": r.bottle.state if r.bottle else None},
+        modes=("petnat",),
+    ),
 )
 
 
@@ -71,3 +81,9 @@ class TipsylabBinarySensor(TipsylabEntity, BinarySensorEntity):
         if self.coordinator.data is None:
             return None
         return self.entity_description.value_fn(self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.entity_description.attrs_fn is None or self.coordinator.data is None:
+            return None
+        return self.entity_description.attrs_fn(self.coordinator.data)

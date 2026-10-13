@@ -92,6 +92,28 @@ SENSORS: tuple[TipsylabSensorDescription, ...] = (
         },
     ),
     TipsylabSensorDescription(
+        key="flaschendruck",
+        translation_key="flaschendruck",
+        device_class=SensorDeviceClass.PRESSURE,
+        native_unit_of_measurement=UnitOfPressure.BAR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda r: round(r.bottle.latest.p20, 2) if r.bottle and r.bottle.latest else None,
+        attrs_fn=lambda r: {}
+        if r.bottle is None
+        else {
+            "erwartet_20": round(r.bottle.expected_20, 2),
+            "erwartet_10": round(r.bottle.expected_10, 2),
+            "grenze": r.bottle.limit,
+            "gemessen": round(r.bottle.latest.p, 2) if r.bottle.latest else None,
+            "temperatur": r.bottle.latest.temp_c if r.bottle.latest else None,
+            "gemessen_am": r.bottle.latest.t.isoformat() if r.bottle.latest else None,
+            "fortschritt": round(r.bottle.progress, 2) if r.bottle.progress is not None else None,
+            "durchgegoren": r.bottle.done,
+        },
+        modes=("petnat",),
+    ),
+    TipsylabSensorDescription(
         key="gaergeschwindigkeit",
         translation_key="gaergeschwindigkeit",
         native_unit_of_measurement=G_L_DAY,

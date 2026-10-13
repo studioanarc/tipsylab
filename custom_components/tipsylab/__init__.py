@@ -36,11 +36,13 @@ from .const import (
     PANEL_URL,
     SERVICE_ADD_EVENT,
     SERVICE_ADD_MEASUREMENT,
+    SERVICE_REMOVE_ENTRY,
     SERVICE_UPDATE_SETTINGS,
     STATIC_URL,
     VERSION,
 )
 from .coordinator import TipsylabCoordinator
+from .house import House
 from .websocket import async_register_websocket
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,6 +72,13 @@ EVENT_SCHEMA = vol.Schema(
         vol.Optional("note"): cv.string,
     }
 )
+REMOVE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ENTRY_ID): cv.string,
+        vol.Required("kind"): cv.string,
+        vol.Required("time"): cv.string,
+    }
+)
 SETTINGS_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_ENTRY_ID): cv.string,
@@ -97,7 +106,10 @@ def _coordinator(hass: HomeAssistant, entry_id: str) -> TipsylabCoordinator:
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Services, WebSocket und Panel einmalig anmelden."""
+    """Hauswerte laden, Services, WebSocket und Panel einmalig anmelden."""
+    house = House(hass)
+    await house.async_load()
+    hass.data.setdefault(DOMAIN, {})["house"] = house
 
     async def add_measurement(call: ServiceCall) -> None:
         data = dict(call.data)
@@ -114,9 +126,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         coord = _coordinator(hass, data.pop(ATTR_ENTRY_ID))
         await coord.async_update_settings(data)
 
+    async def remove_entry(call: ServiceCall) -> None:
+        coord = _coordinator(hass, call.data[ATTR_ENTRY_ID])
+        await coord.async_remove_entry(call.data["kind"], call.data["time"])
+
     hass.services.async_register(DOMAIN, SERVICE_ADD_MEASUREMENT, add_measurement, schema=MEASUREMENT_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_ADD_EVENT, add_event, schema=EVENT_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_UPDATE_SETTINGS, update_settings, schema=SETTINGS_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_REMOVE_ENTRY, remove_entry, schema=REMOVE_SCHEMA)
     async_register_websocket(hass)
     await _async_register_panel(hass)
     return True

@@ -55,6 +55,8 @@ def tr(lang: str) -> dict:
         "co2_target_entity": L(
             "CO₂-Ziel am Regler (ESPHome-Zahl der Tankbox)", "CO₂ target on the controller (Tankbox ESPHome number)"
         ),
+        "bottle_pressure_entity": L("Messflasche: Druck (Flaschenbox)", "Measurement bottle: pressure (bottle box)"),
+        "bottle_temperature_entity": L("Messflasche: Temperatur", "Measurement bottle: temperature"),
     }
     return {
         "config": {
@@ -146,6 +148,7 @@ def tr(lang: str) -> dict:
                     "cooling": L("Kühlen", "Cooling"),
                     "heating": L("Heizen", "Heating"),
                     "bottled": L("Abgefüllt", "Bottled"),
+                    "closed": L("Abgeschlossen (ins Archiv)", "Closed (to the archive)"),
                     "note": L("Notiz", "Note"),
                 }
             },
@@ -155,6 +158,7 @@ def tr(lang: str) -> dict:
                 "restzucker": {"name": L("Restzucker", "Residual sugar")},
                 "alkohol": {"name": L("Alkohol", "Alcohol")},
                 "alkohol_flasche": {"name": L("Alkohol in der Flasche", "Alcohol in the bottle")},
+                "flaschendruck": {"name": L("Messflasche bei 20 °C", "Measurement bottle at 20 °C")},
                 "gaergeschwindigkeit": {"name": L("Gärgeschwindigkeit", "Fermentation rate")},
                 "zielzucker": {"name": L("Zielzucker", "Target sugar")},
                 "dub": {"name": L("Zeit bis zum Abfüllen", "Time until bottling")},
@@ -177,6 +181,7 @@ def tr(lang: str) -> dict:
                         "past": L("Fenster vorbei", "window passed"),
                         "dry": L("trocken", "dry"),
                         "stuck": L("stockt?", "stuck?"),
+                        "bottled": L("abgefüllt", "bottled"),
                         "charmat": L("Charmat-Regelung", "Charmat control"),
                     },
                 },
@@ -188,6 +193,7 @@ def tr(lang: str) -> dict:
                 "sicherheitsabstand": {
                     "name": L("Sollwert zu nah am Sicherheitsventil", "Set point too close to safety valve")
                 },
+                "flaschendruck_alarm": {"name": L("Messflasche über dem erwarteten Druck", "Measurement bottle above expected pressure")},
             },
         },
         "services": {
@@ -223,8 +229,8 @@ def tr(lang: str) -> dict:
             "add_event": {
                 "name": L("Ereignis eintragen", "Add event"),
                 "description": L(
-                    "Abstich, Volumen, Kühlen, Heizen, Abgefüllt oder Notiz.",
-                    "Racking, volume, cooling, heating, bottled or note.",
+                    "Abstich, Volumen, Kühlen, Heizen, Abgefüllt, Abgeschlossen oder Notiz.",
+                    "Racking, volume, cooling, heating, bottled, closed or note.",
                 ),
                 "fields": {
                     "config_entry_id": {"name": L("Ansatz", "Batch"), "description": ""},
@@ -234,6 +240,18 @@ def tr(lang: str) -> dict:
                         "description": L("Bei Volumen: neues Volumen in Litern.", "For volume: new volume in litres."),
                     },
                     "note": {"name": L("Notiz", "Note"), "description": ""},
+                },
+            },
+            "remove_entry": {
+                "name": L("Eintrag löschen", "Remove entry"),
+                "description": L(
+                    "Löscht eine Messung oder ein Ereignis, etwa ein versehentliches „Abgefüllt“.",
+                    "Removes a measurement or an event, for example an accidental \"bottled\".",
+                ),
+                "fields": {
+                    "config_entry_id": {"name": L("Ansatz", "Batch"), "description": ""},
+                    "kind": {"name": L("Art", "Kind"), "description": ""},
+                    "time": {"name": L("Zeitpunkt", "Time"), "description": L("Wie gespeichert (ISO).", "As stored (ISO).")},
                 },
             },
             "update_settings": {

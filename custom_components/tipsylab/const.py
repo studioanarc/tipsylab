@@ -20,6 +20,8 @@ CONF_PRESSURE_ENTITY = "pressure_entity"  # Charmat: Tankdruck
 CONF_CO2_TARGET_ENTITY = "co2_target_entity"  # Charmat: number-Entität des ESPHome-Reglers
 CONF_HEATER_HOST = "heater_host"  # Shelly mit thermostat.js
 CONF_WEIGHT_ENTITY = "weight_entity"  # Waage (kg oder g), z. B. Gärbox mit HX711 oder Waagebox
+CONF_BOTTLE_PRESSURE_ENTITY = "bottle_pressure_entity"  # Messflasche: Druck (Flaschenbox)
+CONF_BOTTLE_TEMP_ENTITY = "bottle_temperature_entity"  # Messflasche: Temperatur
 
 # Quellen eines Ansatzes: lassen sich über "Neu konfigurieren" ändern
 SOURCE_KEYS = (
@@ -31,6 +33,8 @@ SOURCE_KEYS = (
     "heater_host",
     "pressure_entity",
     "co2_target_entity",
+    "bottle_pressure_entity",
+    "bottle_temperature_entity",
 )
 
 # Einstellungen (entry.options)
@@ -62,13 +66,14 @@ DEFAULT_OPTIONS = {
 
 MEASUREMENT_KINDS = ["brix", "density", "brix_density", "sugar", "malic", "ph", "bottle_pressure"]
 DENSITY_UNITS = ["sg", "oe", "baume", "gcm3"]
-EVENT_KINDS = ["racking", "volume", "cooling", "heating", "bottled", "note"]
+EVENT_KINDS = ["racking", "volume", "cooling", "heating", "bottled", "closed", "note"]
 
-STATUS_OPTIONS = ["waiting", "fermenting", "approaching", "window", "past", "dry", "stuck", "charmat"]
+STATUS_OPTIONS = ["waiting", "fermenting", "approaching", "window", "past", "dry", "stuck", "bottled", "charmat"]
 
 SERVICE_ADD_MEASUREMENT = "add_measurement"
 SERVICE_ADD_EVENT = "add_event"
 SERVICE_UPDATE_SETTINGS = "update_settings"
+SERVICE_REMOVE_ENTRY = "remove_entry"
 
 ATTR_ENTRY_ID = "config_entry_id"
 
@@ -79,6 +84,8 @@ HEATER_KVS_KEY = "tipsylab_soll"
 STORAGE_VERSION = 1
 READING_INTERVAL_S = 300  # Sensorwerte werden auf 5 min verdichtet
 READING_RETENTION_DAYS = 90
+FORECAST_SNAPSHOT_MINUTES = 60  # Prognose-Stände für die Nachkalkulation, höchstens stündlich
+FORECAST_SNAPSHOT_MAX = 24 * 45
 
 PANEL_URL = "tipsylab"
 STATIC_URL = "/tipsylab_static"

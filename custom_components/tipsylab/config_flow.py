@@ -25,6 +25,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     BOTTLES,
+    CONF_BOTTLE_PRESSURE_ENTITY,
+    CONF_BOTTLE_TEMP_ENTITY,
     CONF_BRIX0,
     CONF_BUBBLE_DEVICE,
     CONF_CO2_TARGET_ENTITY,
@@ -94,18 +96,20 @@ def sources_schema(mode: str) -> vol.Schema:
                 vol.Optional(CONF_HEATER_HOST): TextSelector(),
             }
         )
-    return vol.Schema(
-        {
-            vol.Optional(CONF_BUBBLE_DEVICE): TextSelector(),
-            vol.Optional(CONF_GRAVITY_ENTITY): _sensor(),
-            vol.Required(CONF_GRAVITY_UNIT, default="sg"): _select(GRAVITY_UNITS, "gravity_unit"),
-            vol.Optional(CONF_TEMP_ENTITY): _sensor(),
-            vol.Optional(CONF_WEIGHT_ENTITY): EntitySelector(
-                EntitySelectorConfig(domain="sensor", device_class="weight")
-            ),
-            vol.Optional(CONF_HEATER_HOST): TextSelector(),
-        }
-    )
+    fields: dict[Any, Any] = {
+        vol.Optional(CONF_BUBBLE_DEVICE): TextSelector(),
+        vol.Optional(CONF_GRAVITY_ENTITY): _sensor(),
+        vol.Required(CONF_GRAVITY_UNIT, default="sg"): _select(GRAVITY_UNITS, "gravity_unit"),
+        vol.Optional(CONF_TEMP_ENTITY): _sensor(),
+        vol.Optional(CONF_WEIGHT_ENTITY): EntitySelector(EntitySelectorConfig(domain="sensor", device_class="weight")),
+        vol.Optional(CONF_HEATER_HOST): TextSelector(),
+    }
+    if mode == "petnat":  # Messflasche nach dem Abfüllen, z. B. die Flaschenbox
+        fields[vol.Optional(CONF_BOTTLE_PRESSURE_ENTITY)] = EntitySelector(
+            EntitySelectorConfig(domain="sensor", device_class="pressure")
+        )
+        fields[vol.Optional(CONF_BOTTLE_TEMP_ENTITY)] = _sensor()
+    return vol.Schema(fields)
 
 
 def target_schema(mode: str, current: dict[str, Any]) -> vol.Schema:

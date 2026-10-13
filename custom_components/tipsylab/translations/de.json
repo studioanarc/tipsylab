@@ -24,7 +24,9 @@
           "weight_entity": "Waage (Gewicht des Gefäßes)",
           "heater_host": "Heizung: Shelly-Adresse (IP)",
           "pressure_entity": "Tankdruck",
-          "co2_target_entity": "CO₂-Ziel am Regler (ESPHome-Zahl der Tankbox)"
+          "co2_target_entity": "CO₂-Ziel am Regler (ESPHome-Zahl der Tankbox)",
+          "bottle_pressure_entity": "Messflasche: Druck (Flaschenbox)",
+          "bottle_temperature_entity": "Messflasche: Temperatur"
         }
       },
       "reconfigure": {
@@ -38,7 +40,9 @@
           "weight_entity": "Waage (Gewicht des Gefäßes)",
           "heater_host": "Heizung: Shelly-Adresse (IP)",
           "pressure_entity": "Tankdruck",
-          "co2_target_entity": "CO₂-Ziel am Regler (ESPHome-Zahl der Tankbox)"
+          "co2_target_entity": "CO₂-Ziel am Regler (ESPHome-Zahl der Tankbox)",
+          "bottle_pressure_entity": "Messflasche: Druck (Flaschenbox)",
+          "bottle_temperature_entity": "Messflasche: Temperatur"
         }
       },
       "target": {
@@ -142,6 +146,7 @@
         "cooling": "Kühlen",
         "heating": "Heizen",
         "bottled": "Abgefüllt",
+        "closed": "Abgeschlossen (ins Archiv)",
         "note": "Notiz"
       }
     }
@@ -156,6 +161,9 @@
       },
       "alkohol_flasche": {
         "name": "Alkohol in der Flasche"
+      },
+      "flaschendruck": {
+        "name": "Messflasche bei 20 °C"
       },
       "gaergeschwindigkeit": {
         "name": "Gärgeschwindigkeit"
@@ -203,6 +211,7 @@
           "past": "Fenster vorbei",
           "dry": "trocken",
           "stuck": "stockt?",
+          "bottled": "abgefüllt",
           "charmat": "Charmat-Regelung"
         }
       }
@@ -219,6 +228,9 @@
       },
       "sicherheitsabstand": {
         "name": "Sollwert zu nah am Sicherheitsventil"
+      },
+      "flaschendruck_alarm": {
+        "name": "Messflasche über dem erwarteten Druck"
       }
     }
   },
@@ -263,7 +275,7 @@
     },
     "add_event": {
       "name": "Ereignis eintragen",
-      "description": "Abstich, Volumen, Kühlen, Heizen, Abgefüllt oder Notiz.",
+      "description": "Abstich, Volumen, Kühlen, Heizen, Abgefüllt, Abgeschlossen oder Notiz.",
       "fields": {
         "config_entry_id": {
           "name": "Ansatz",
@@ -280,6 +292,24 @@
         "note": {
           "name": "Notiz",
           "description": ""
+        }
+      }
+    },
+    "remove_entry": {
+      "name": "Eintrag löschen",
+      "description": "Löscht eine Messung oder ein Ereignis, etwa ein versehentliches „Abgefüllt“.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Ansatz",
+          "description": ""
+        },
+        "kind": {
+          "name": "Art",
+          "description": ""
+        },
+        "time": {
+          "name": "Zeitpunkt",
+          "description": "Wie gespeichert (ISO)."
         }
       }
     },

@@ -57,7 +57,7 @@ add_event:
       selector:
         select:
           translation_key: event_kind
-          options: [racking, volume, cooling, heating, bottled, note]
+          options: [racking, volume, cooling, heating, bottled, closed, note]
     value:
       selector:
         number:
@@ -113,3 +113,18 @@ update_settings:
     prv_bar:
       selector:
         number: {min: 0.5, max: 12, step: 0.1, unit_of_measurement: bar, mode: box}
+remove_entry:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: tipsylab
+    kind:
+      required: true
+      selector:
+        text:
+    time:
+      required: true
+      selector:
+        text:

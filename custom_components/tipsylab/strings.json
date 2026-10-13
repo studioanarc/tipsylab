@@ -24,7 +24,9 @@
           "weight_entity": "Scale (vessel weight)",
           "heater_host": "Heater: Shelly address (IP)",
           "pressure_entity": "Tank pressure",
-          "co2_target_entity": "CO₂ target on the controller (Tankbox ESPHome number)"
+          "co2_target_entity": "CO₂ target on the controller (Tankbox ESPHome number)",
+          "bottle_pressure_entity": "Measurement bottle: pressure (bottle box)",
+          "bottle_temperature_entity": "Measurement bottle: temperature"
         }
       },
       "reconfigure": {
@@ -38,7 +40,9 @@
           "weight_entity": "Scale (vessel weight)",
           "heater_host": "Heater: Shelly address (IP)",
           "pressure_entity": "Tank pressure",
-          "co2_target_entity": "CO₂ target on the controller (Tankbox ESPHome number)"
+          "co2_target_entity": "CO₂ target on the controller (Tankbox ESPHome number)",
+          "bottle_pressure_entity": "Measurement bottle: pressure (bottle box)",
+          "bottle_temperature_entity": "Measurement bottle: temperature"
         }
       },
       "target": {
@@ -142,6 +146,7 @@
         "cooling": "Cooling",
         "heating": "Heating",
         "bottled": "Bottled",
+        "closed": "Closed (to the archive)",
         "note": "Note"
       }
     }
@@ -156,6 +161,9 @@
       },
       "alkohol_flasche": {
         "name": "Alcohol in the bottle"
+      },
+      "flaschendruck": {
+        "name": "Measurement bottle at 20 °C"
       },
       "gaergeschwindigkeit": {
         "name": "Fermentation rate"
@@ -203,6 +211,7 @@
           "past": "window passed",
           "dry": "dry",
           "stuck": "stuck?",
+          "bottled": "bottled",
           "charmat": "Charmat control"
         }
       }
@@ -219,6 +228,9 @@
       },
       "sicherheitsabstand": {
         "name": "Set point too close to safety valve"
+      },
+      "flaschendruck_alarm": {
+        "name": "Measurement bottle above expected pressure"
       }
     }
   },
@@ -263,7 +275,7 @@
     },
     "add_event": {
       "name": "Add event",
-      "description": "Racking, volume, cooling, heating, bottled or note.",
+      "description": "Racking, volume, cooling, heating, bottled, closed or note.",
       "fields": {
         "config_entry_id": {
           "name": "Batch",
@@ -280,6 +292,24 @@
         "note": {
           "name": "Note",
           "description": ""
+        }
+      }
+    },
+    "remove_entry": {
+      "name": "Remove entry",
+      "description": "Removes a measurement or an event, for example an accidental \"bottled\".",
+      "fields": {
+        "config_entry_id": {
+          "name": "Batch",
+          "description": ""
+        },
+        "kind": {
+          "name": "Kind",
+          "description": ""
+        },
+        "time": {
+          "name": "Time",
+          "description": "As stored (ISO)."
         }
       }
     },

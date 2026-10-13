@@ -10,6 +10,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DENSITY_UNITS, DOMAIN, MEASUREMENT_KINDS
+from .house import get_house
 
 
 @callback
@@ -27,7 +28,8 @@ def ws_batches(hass: HomeAssistant, connection: websocket_api.ActiveConnection, 
         for entry in hass.config_entries.async_loaded_entries(DOMAIN)
         if getattr(entry, "runtime_data", None) is not None
     ]
-    connection.send_result(msg["id"], {"batches": batches})
+    house = get_house(hass)
+    connection.send_result(msg["id"], {"batches": batches, "house": house.as_dict() if house else None})
 
 
 @websocket_api.websocket_command(
