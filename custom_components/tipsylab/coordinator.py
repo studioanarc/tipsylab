@@ -72,7 +72,7 @@ from .house import get_house
 
 _LOGGER = logging.getLogger(__name__)
 
-SERIES = ("gravity", "temps", "bubbles", "pressure", "weight", "bottle_pressure", "bottle_temp")
+SERIES = ("gravity", "temps", "bubbles", "pressure", "weight", "bottle_pressure", "bottle_temp", "bubbles_saturated")
 DISPLAY_REFRESH = timedelta(minutes=15)
 HEATER_REFRESH = timedelta(minutes=30)
 HISTORY_DAYS = {"gravity": 7, "temps": 7, "pressure": 3, "weight": 7}
@@ -314,6 +314,8 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
         self._acc.add(payload)
         now = dt_util.utcnow()
         self._record("bubbles", now, self._acc.total)
+        if payload.get("saturated"):  # Zähler an der Grenze: zählt zu wenig (Phase 3)
+            self._record("bubbles_saturated", now, 1.0)
         if not self._conf(CONF_TEMP_ENTITY) and isinstance(payload.get("temperature"), (int, float)):
             self._record("temps", now, float(payload["temperature"]))
         if not self._conf(CONF_WEIGHT_ENTITY) and isinstance(payload.get("weight_kg"), (int, float)):
@@ -555,6 +557,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 self._series("temps"),
                 self._series("weight"),
                 abv_now=now,  # Laborwerte aus der Flasche zählen für den Alkohol weiter
+                saturated=[t for t, _ in self._series("bubbles_saturated")],
             )
         )
         if bottling is not None:
@@ -694,6 +697,8 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             self._series("bubbles"),
             self._series("temps"),
             self._series("weight"),
+            None,
+            [t for t, _ in self._series("bubbles_saturated")],
         )
         out.update(
             {
@@ -824,6 +829,10 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 "category": est.category,
                 "planned_temp": est.planned_temp,
                 "measurement_recommended": est.measurement_recommended,
+                "window_h": est.window_h,
+                "window_h_measured": est.window_h_measured,
+                "p_over_target": est.p_over_target,
+                "p_over_limit": est.p_over_limit,
                 "spindle_offset": est.spindle_offset,
                 "fit_k": est.fit_k,
                 "fit_rel": est.fit_rel,

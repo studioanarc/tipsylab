@@ -178,6 +178,10 @@ SENSORS: tuple[TipsylabSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfPressure.BAR,
         suggested_display_precision=1,
         value_fn=_est("p_now_20", 2),
+        attrs_fn=lambda r: {
+            "ueber_ziel": round(r.estimate.p_over_target, 2) if r.estimate and r.estimate.p_over_target is not None else None,
+            "ueber_grenze": round(r.estimate.p_over_limit, 3) if r.estimate and r.estimate.p_over_limit is not None else None,
+        },
         modes=("petnat",),
     ),
     TipsylabSensorDescription(

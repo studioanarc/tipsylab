@@ -38,6 +38,12 @@ BINARY_SENSORS: tuple[TipsylabBinaryDescription, ...] = (
         translation_key="messung_empfohlen",
         icon="mdi:test-tube",
         value_fn=lambda r: r.estimate.measurement_recommended if r.estimate else None,
+        attrs_fn=lambda r: {
+            "fenster_h": round(r.estimate.window_h, 1) if r.estimate and r.estimate.window_h is not None else None,
+            "fenster_nach_messung_h": round(r.estimate.window_h_measured, 1)
+            if r.estimate and r.estimate.window_h_measured is not None
+            else None,
+        },
     ),
     TipsylabBinaryDescription(
         key="flaschengrenze",

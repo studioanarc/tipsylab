@@ -160,11 +160,13 @@ async def test_bubbles_via_mqtt_and_display(hass: HomeAssistant, mqtt_mock_entry
     for seq, (n, total) in enumerate(((12, 12), (15, 27), (9, 36)), start=1):
         async_fire_mqtt_message(
             hass, "sensors/bubble/tipsy-abc123",
-            json.dumps({"bubbles": n, "total": total, "boot_id": "b1", "seq": seq, "temperature": 16.2}),
+            json.dumps({"bubbles": n, "total": total, "boot_id": "b1", "seq": seq, "temperature": 16.2,
+                        "saturated": seq == 2}),
         )
     await hass.async_block_till_done()
     coord = entry.runtime_data
     assert coord.store_data["readings"]["bubbles"][-1][1] == 36
+    assert len(coord.store_data["readings"]["bubbles_saturated"]) == 1  # nur die gesättigte Meldung
     assert coord.store_data["readings"]["temps"][-1][1] == pytest.approx(16.2)
     await coord.async_refresh()
     mqtt_mock.async_publish.assert_any_call("tipsy/tipsy-abc123/display", ANY, 0, True)
