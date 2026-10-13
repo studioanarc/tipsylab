@@ -117,3 +117,12 @@ def test_measurement_bottle_learns_the_saturation(true_saturation):
 def test_no_saturation_before_the_end():
     status = bottle_status(_bottling(), simulate_bottle(TARGET_SUGAR, start=START, days=(3, 7)), START + timedelta(days=8))
     assert observed_saturation(status) is None
+
+
+@pytest.mark.parametrize("extra_sugar", [-5.0, 6.0])
+def test_implausible_bottles_teach_nothing(extra_sugar):
+    """Steckt die Flaschengärung oder war viel mehr Zucker drin, lernt der Hauswert nichts daraus."""
+    readings = simulate_bottle(TARGET_SUGAR + extra_sugar, start=START, noise_bar=0.02)
+    status = bottle_status(_bottling(), readings, START + timedelta(days=36))
+    assert status.done
+    assert observed_saturation(status) is None

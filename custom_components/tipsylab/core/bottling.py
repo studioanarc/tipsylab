@@ -34,6 +34,10 @@ DEFAULT_TEMP_C = 10.0  # Temperatur der Messflasche, wenn keine angegeben ist: r
 DONE_AFTER = timedelta(days=21)  # frühestens dann gilt die Flaschengärung als durch
 DONE_STABLE_BAR = 0.15  # zwei Messungen mit mindestens drei Tagen Abstand, die so nah beieinander liegen
 READING_SIGMA_BAR = 0.1  # Ablesefehler eines Aphrometers
+# Gelernt wird nur aus plausibler Sättigung. Weit daneben liegt eher der Restzucker oder die
+# Flaschengärung steckt; das darf den Hauswert nicht verschieben (sonst würde etwa eine stockende
+# Flaschengärung den nächsten Ansatz mit mehr Zucker abfüllen lassen).
+PLAUSIBLE_SATURATION = (0.4, 1.4)
 
 ACTION_HIGH = "Flaschen auf 0–2 °C kühlen und die Messflasche täglich ablesen."
 ACTION_DANGER = "Sofort auf 0–2 °C kühlen. Flaschen nur mit Schutzbrille und Handschuhen anfassen."
@@ -239,6 +243,8 @@ def observed_saturation(status: BottleStatus) -> tuple[float, float] | None:
         return (co2 - YIELD_CO2_SUGAR * max(0.0, sugar) - YIELD_CO2_MALIC * max(0.0, b.malic)) / k
 
     value = sat(last.p, b.sugar)
+    if not PLAUSIBLE_SATURATION[0] <= value <= PLAUSIBLE_SATURATION[1]:
+        return None
     from_sugar = abs(sat(last.p, b.sugar + b.sigma) - sat(last.p, b.sugar - b.sigma)) / 2
     from_reading = abs(sat(last.p + READING_SIGMA_BAR, b.sugar) - sat(last.p - READING_SIGMA_BAR, b.sugar)) / 2
     return value, (from_sugar**2 + from_reading**2) ** 0.5
