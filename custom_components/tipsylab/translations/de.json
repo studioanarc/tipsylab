@@ -58,7 +58,8 @@
           "temp_start": "Temperatur zu Beginn",
           "temp_switch_sugar": "Umschalten ab Restzucker",
           "temp_late": "Temperatur danach",
-          "q10": "Q10 (Temperaturfaktor je 10 °C)"
+          "q10": "Q10 (Temperaturfaktor je 10 °C)",
+          "public": "Auf der Website zeigen (DataWein-Feed)"
         },
         "data_description": {
           "target_bar_20c": "EU: frisante/pétillant bis 2,5 bar, espumante/mousseux ab 3 bar (bei 20 °C).",
@@ -89,7 +90,8 @@
           "temp_start": "Temperatur zu Beginn",
           "temp_switch_sugar": "Umschalten ab Restzucker",
           "temp_late": "Temperatur danach",
-          "q10": "Q10 (Temperaturfaktor je 10 °C)"
+          "q10": "Q10 (Temperaturfaktor je 10 °C)",
+          "public": "Auf der Website zeigen (DataWein-Feed)"
         },
         "data_description": {
           "target_bar_20c": "EU: frisante/pétillant bis 2,5 bar, espumante/mousseux ab 3 bar (bei 20 °C).",
@@ -313,6 +315,11 @@
         }
       }
     },
+    "website_feed": {
+      "name": "Feed für die Website",
+      "description": "Öffentliche Zahlen aller Ansätze mit „Auf der Website zeigen“, für den Blueprint DataWein-Feed.",
+      "fields": {}
+    },
     "update_settings": {
       "name": "Einstellungen ändern",
       "description": "Ziel, Flasche, Malo, Volumen und Temperaturplan eines Ansatzes.",
@@ -363,6 +370,10 @@
         },
         "q10": {
           "name": "Q10 (Temperaturfaktor je 10 °C)",
+          "description": ""
+        },
+        "public": {
+          "name": "Auf der Website zeigen (DataWein-Feed)",
           "description": ""
         },
         "volume_l": {

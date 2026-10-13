@@ -10,10 +10,11 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_ENTRY_ID,
@@ -28,6 +29,7 @@ from .const import (
     OPT_MALIC,
     OPT_MALO,
     OPT_PRV_BAR,
+    OPT_PUBLIC,
     OPT_Q10,
     OPT_TARGET_BAR,
     OPT_TEMP_LATE,
@@ -38,10 +40,12 @@ from .const import (
     SERVICE_ADD_MEASUREMENT,
     SERVICE_REMOVE_ENTRY,
     SERVICE_UPDATE_SETTINGS,
+    SERVICE_WEBSITE_FEED,
     STATIC_URL,
     VERSION,
 )
 from .coordinator import TipsylabCoordinator
+from .core.feed import feed
 from .house import House
 from .websocket import async_register_websocket
 
@@ -94,6 +98,7 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional(OPT_FILLING_LOSS): vol.All(vol.Coerce(float), vol.Range(min=0, max=0.5)),
         vol.Optional(OPT_PRV_BAR): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=12)),
         vol.Optional("volume_l"): vol.All(vol.Coerce(float), vol.Range(min=1, max=100000)),
+        vol.Optional(OPT_PUBLIC): cv.boolean,
     }
 )
 
@@ -126,6 +131,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         coord = _coordinator(hass, data.pop(ATTR_ENTRY_ID))
         await coord.async_update_settings(data)
 
+    async def website_feed(call: ServiceCall) -> ServiceResponse:
+        """Öffentliche Zahlen aller Ansätze mit „Auf der Website zeigen“ (DataWein-Feed)."""
+        entries = [
+            entry.runtime_data.public_entry()
+            for entry in hass.config_entries.async_loaded_entries(DOMAIN)
+            if getattr(entry, "runtime_data", None) is not None and entry.options.get(OPT_PUBLIC)
+        ]
+        return feed([e for e in entries if e], dt_util.utcnow())
+
     async def remove_entry(call: ServiceCall) -> None:
         coord = _coordinator(hass, call.data[ATTR_ENTRY_ID])
         await coord.async_remove_entry(call.data["kind"], call.data["time"])
@@ -134,6 +148,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(DOMAIN, SERVICE_ADD_EVENT, add_event, schema=EVENT_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_UPDATE_SETTINGS, update_settings, schema=SETTINGS_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_REMOVE_ENTRY, remove_entry, schema=REMOVE_SCHEMA)
+    hass.services.async_register(
+        DOMAIN, SERVICE_WEBSITE_FEED, website_feed, supports_response=SupportsResponse.ONLY
+    )
     async_register_websocket(hass)
     await _async_register_panel(hass)
     return True

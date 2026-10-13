@@ -402,3 +402,34 @@ async def test_reconfigure_adds_a_scale_and_keeps_data(hass: HomeAssistant, petn
     assert petnat_entry.data["weight_entity"] == "sensor.waage"
     assert petnat_entry.data["brix0"] == 20.5
     assert petnat_entry.runtime_data.store_data["measurements"][-1]["value"] == 9.0
+
+
+async def test_website_feed_shows_only_public_batches(hass: HomeAssistant) -> None:
+    public = MockConfigEntry(
+        domain=DOMAIN, title="DATA Rosé 2026",
+        data={"name": "DATA Rosé 2026", "mode": "petnat", "brix0": 20.5, "volume_l": 750,
+              "start": (dt_util.utcnow() - timedelta(days=6)).isoformat(), "bubble_device": "tipsy-abc123",
+              "gravity_entity": "sensor.spindel_gravity"},
+        options={"target_bar_20c": 2.5, "bottle": "750", "q10": 2.2, "dry_sugar_g_l": 2.0, "public": True},
+    )
+    private = MockConfigEntry(
+        domain=DOMAIN, title="Versuch",
+        data={"name": "Versuch", "mode": "petnat", "brix0": 20.0, "volume_l": 50,
+              "start": (dt_util.utcnow() - timedelta(days=3)).isoformat()},
+        options={"target_bar_20c": 2.5, "bottle": "750", "q10": 2.2, "dry_sugar_g_l": 2.0},
+    )
+    for entry in (public, private):
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    reading = round(public.runtime_data.model().refractometer_reading(30.0), 2)
+    await hass.services.async_call(
+        DOMAIN, "add_measurement", {"config_entry_id": public.entry_id, "kind": "brix", "value": reading}, blocking=True
+    )
+    result = await hass.services.async_call(DOMAIN, "website_feed", {}, blocking=True, return_response=True)
+    assert [b["name"] for b in result["batches"]] == ["DATA Rosé 2026"]
+    batch = result["batches"][0]
+    assert batch["sugar"] == pytest.approx(30.0, abs=1.0)
+    assert batch["day"] == 6
+    text = json.dumps(result)
+    assert "tipsy-abc123" not in text and "sensor." not in text

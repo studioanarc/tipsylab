@@ -51,6 +51,7 @@ from .const import (
     OPT_MALIC,
     OPT_MALO,
     OPT_PRV_BAR,
+    OPT_PUBLIC,
     OPT_Q10,
     OPT_TARGET_BAR,
     OPT_TEMP_LATE,
@@ -136,6 +137,7 @@ def target_schema(mode: str, current: dict[str, Any]) -> vol.Schema:
             max_v = 250 if key == OPT_TEMP_SWITCH_SUGAR else 30
             fields[vol.Optional(key, description={"suggested_value": current.get(key)})] = _num(0, max_v, 0.5, unit)
         fields[vol.Required(OPT_Q10, default=opt(OPT_Q10))] = _num(1.2, 4.0, 0.1)
+        fields[vol.Required(OPT_PUBLIC, default=opt(OPT_PUBLIC))] = BooleanSelector()
     return vol.Schema(fields)
 
 

@@ -1,0 +1,30 @@
+blueprint:
+  name: TIPSYLAB · DataWein-Feed auf die Website
+  description: >-
+    Schickt alle 15 Minuten die öffentlichen Zahlen der Ansätze mit „Auf der Website zeigen“ an
+    deinen Webserver. Home Assistant bleibt vom Internet aus unerreichbar; veröffentlicht wird nur,
+    was im Feed steht. Vorher einen rest_command anlegen (website/datawein/README.md).
+  domain: automation
+  source_url: https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/website_feed.yaml
+  input:
+    dienst:
+      name: rest_command
+      description: Der rest_command, der die Datei an den Webserver schickt.
+      default: rest_command.tipsylab_feed
+      selector:
+        text:
+
+mode: single
+
+triggers:
+  - trigger: time_pattern
+    minutes: "/15"
+
+actions:
+  - action: tipsylab.website_feed
+    response_variable: feed
+  - condition: template
+    value_template: "{{ feed.batches | count > 0 }}"
+  - action: !input dienst
+    data:
+      payload: "{{ feed }}"

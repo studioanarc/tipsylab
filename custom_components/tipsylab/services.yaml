@@ -128,3 +128,4 @@ remove_entry:
       required: true
       selector:
         text:
+website_feed:

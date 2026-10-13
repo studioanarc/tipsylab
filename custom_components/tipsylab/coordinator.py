@@ -64,6 +64,7 @@ from .core.bubbles import BubbleAccumulator
 from .core.charmat import CharmatStatus, charmat_status
 from .core.composition import LAB_SIGMA_ABV, LAB_SIGMA_SUGAR, WineModel
 from .core.display import display_payload, format_dub
+from .core.feed import feed_entry
 from .core.fermentation import SIGMA, Anchor, Estimate, Series, Settings, estimate
 from .core.house import crossing_time, forecast_check
 from .core.physics import FILL_MID
@@ -748,6 +749,17 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
         if minutes >= 4 and now - last <= timedelta(minutes=20):
             bpm = round(max(0.0, (totals.interpolate(last) or 0.0) - (totals.interpolate(a) or 0.0)) / minutes, 1)
         return hourly, bpm
+
+    def public_entry(self) -> dict[str, Any] | None:
+        """Öffentliche Zahlen dieses Ansatzes für den DataWein-Feed (nur gerundete Werte, keine Geräte)."""
+        if self.mode == "charmat":
+            return None
+        now = dt_util.utcnow()
+        temps = self._series("temps")
+        temp = temps[-1][1] if temps and now - temps[-1][0] <= timedelta(hours=1) else None
+        _, bpm = self._bubble_rates(now)
+        est = self.data.estimate if self.data else None
+        return feed_entry(self.config_entry.title, self.mode, self.start, now, est, self._model_or_none(), bpm, temp)
 
     def panel_data(self) -> dict[str, Any]:
         est = self.data.estimate if self.data else None

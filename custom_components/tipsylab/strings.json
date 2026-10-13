@@ -58,7 +58,8 @@
           "temp_start": "Temperature at start",
           "temp_switch_sugar": "Switch at residual sugar",
           "temp_late": "Temperature afterwards",
-          "q10": "Q10 (rate factor per 10 °C)"
+          "q10": "Q10 (rate factor per 10 °C)",
+          "public": "Show on the website (DataWein feed)"
         },
         "data_description": {
           "target_bar_20c": "EU: semi-sparkling up to 2.5 bar, sparkling from 3 bar (at 20 °C).",
@@ -89,7 +90,8 @@
           "temp_start": "Temperature at start",
           "temp_switch_sugar": "Switch at residual sugar",
           "temp_late": "Temperature afterwards",
-          "q10": "Q10 (rate factor per 10 °C)"
+          "q10": "Q10 (rate factor per 10 °C)",
+          "public": "Show on the website (DataWein feed)"
         },
         "data_description": {
           "target_bar_20c": "EU: semi-sparkling up to 2.5 bar, sparkling from 3 bar (at 20 °C).",
@@ -313,6 +315,11 @@
         }
       }
     },
+    "website_feed": {
+      "name": "Website feed",
+      "description": "Public numbers of all batches with \"show on the website\", for the DataWein feed blueprint.",
+      "fields": {}
+    },
     "update_settings": {
       "name": "Update settings",
       "description": "Target, bottle, malolactic, volume and temperature plan of a batch.",
@@ -363,6 +370,10 @@
         },
         "q10": {
           "name": "Q10 (rate factor per 10 °C)",
+          "description": ""
+        },
+        "public": {
+          "name": "Show on the website (DataWein feed)",
           "description": ""
         },
         "volume_l": {

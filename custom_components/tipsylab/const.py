@@ -49,6 +49,7 @@ OPT_TEMP_LATE = "temp_late"
 OPT_TEMP_SWITCH_SUGAR = "temp_switch_sugar"
 OPT_FILLING_LOSS = "filling_loss"
 OPT_PRV_BAR = "prv_bar"
+OPT_PUBLIC = "public"  # auf der Website zeigen (DataWein-Feed)
 
 MODES = ["petnat", "still", "charmat"]
 BOTTLES = ["750", "330"]
@@ -62,6 +63,7 @@ DEFAULT_OPTIONS = {
     OPT_Q10: 2.2,
     OPT_DRY_SUGAR: 2.0,
     OPT_FILLING_LOSS: 0.08,
+    OPT_PUBLIC: False,
 }
 
 MEASUREMENT_KINDS = ["brix", "density", "brix_density", "sugar", "malic", "ph", "bottle_pressure"]
@@ -74,6 +76,7 @@ SERVICE_ADD_MEASUREMENT = "add_measurement"
 SERVICE_ADD_EVENT = "add_event"
 SERVICE_UPDATE_SETTINGS = "update_settings"
 SERVICE_REMOVE_ENTRY = "remove_entry"
+SERVICE_WEBSITE_FEED = "website_feed"
 
 ATTR_ENTRY_ID = "config_entry_id"
 

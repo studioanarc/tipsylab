@@ -27,6 +27,7 @@ def tr(lang: str) -> dict:
         "temp_switch_sugar": L("Umschalten ab Restzucker", "Switch at residual sugar"),
         "temp_late": L("Temperatur danach", "Temperature afterwards"),
         "q10": L("Q10 (Temperaturfaktor je 10 °C)", "Q10 (rate factor per 10 °C)"),
+        "public": L("Auf der Website zeigen (DataWein-Feed)", "Show on the website (DataWein feed)"),
     }
     target_desc = {
         "target_bar_20c": L(
@@ -253,6 +254,14 @@ def tr(lang: str) -> dict:
                     "kind": {"name": L("Art", "Kind"), "description": ""},
                     "time": {"name": L("Zeitpunkt", "Time"), "description": L("Wie gespeichert (ISO).", "As stored (ISO).")},
                 },
+            },
+            "website_feed": {
+                "name": L("Feed für die Website", "Website feed"),
+                "description": L(
+                    "Öffentliche Zahlen aller Ansätze mit „Auf der Website zeigen“, für den Blueprint DataWein-Feed.",
+                    "Public numbers of all batches with \"show on the website\", for the DataWein feed blueprint.",
+                ),
+                "fields": {},
             },
             "update_settings": {
                 "name": L("Einstellungen ändern", "Update settings"),
