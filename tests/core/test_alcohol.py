@@ -5,7 +5,6 @@ import random
 import statistics
 
 import pytest
-from simulator import SimConfig, simulate
 
 from core.composition import (
     ABV_PARAM_SIGMA,
@@ -19,6 +18,7 @@ from core.composition import (
     label_within,
 )
 from core.fermentation import Anchor, Settings, estimate
+from simulator import SimConfig, simulate
 
 DRY = 2.0
 

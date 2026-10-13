@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "tools"))
-from simulator import SimConfig, simulate  # noqa: E402
+from simulator import SimConfig, simulate
 
 OUT = os.environ.get("PANEL_DUMP")
 pytestmark = pytest.mark.skipif(not OUT, reason="nur für die Panel-Vorschau (PANEL_DUMP=<Ordner>)")

@@ -1,6 +1,7 @@
 """Die Integration im echten Home Assistant: Einrichten, Messen, Rechnen, Panel-Daten."""
 
 from datetime import timedelta
+from itertools import pairwise
 import json
 from unittest.mock import ANY
 
@@ -279,13 +280,13 @@ async def test_readings_keep_latest_time(hass: HomeAssistant, petnat_entry: Mock
     assert await hass.config_entries.async_setup(petnat_entry.entry_id)
     coord = petnat_entry.runtime_data
     t0 = dt_util.utcnow() - timedelta(hours=2)
-    for minute in range(0, 31):  # jede Minute ein Wert
+    for minute in range(31):  # jede Minute ein Wert
         coord._record("bubbles", t0 + timedelta(minutes=minute), 10.0 * minute)
     series = coord.store_data["readings"]["bubbles"]
     times = [dt_util.parse_datetime(t) for t, _ in series]
     assert series[-1][1] == 300.0
     assert times[-1] == t0 + timedelta(minutes=30)
-    assert all((b - a) >= timedelta(minutes=4) for a, b in zip(times[:-2], times[1:-1]))
+    assert all((b - a) >= timedelta(minutes=4) for a, b in pairwise(times[:-1]))
     assert len(series) <= 9
 
 

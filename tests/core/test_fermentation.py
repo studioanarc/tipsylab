@@ -1,12 +1,13 @@
 """Gärschätzung und Prognose gegen den Simulator (bekannte Wahrheit)."""
 
 from datetime import datetime, timedelta
+from itertools import pairwise
 import random
 
 import pytest
-from simulator import SimConfig, simulate
 
 from core.fermentation import Anchor, Settings, estimate, remove_steps
+from simulator import SimConfig, simulate
 
 PLAN = ((None, 17.0), (30.0, 12.0))
 
@@ -128,7 +129,7 @@ def test_forecast_curve_matches_window(sim):
     for _, s, hi, lo in est.forecast:
         assert lo <= s <= hi
     mids = [p[1] for p in est.forecast]
-    assert all(b <= a for a, b in zip(mids, mids[1:]))
+    assert all(b <= a for a, b in pairwise(mids))
     # Die Mittellinie kreuzt den Zielzucker dort, wo best liegt (± ein Rechenschritt)
     crossing = next(t for t, s, _, _ in est.forecast if s <= est.target_sugar)
     assert abs((crossing - est.best).total_seconds()) <= 3600

@@ -16,3 +16,14 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 120
 target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "SIM", "PIE", "RUF", "BLE"]
+# Gedankenstrich, Minuszeichen und σ stehen mit Absicht in Texten und Kommentaren
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+# wie Home Assistant: innerhalb eines Blocks nach Modul sortiert, HA als eigener Block
+force-sort-within-sections = true
+combine-as-imports = true
+known-first-party = ["homeassistant", "core", "simulator", "druckmodell"]

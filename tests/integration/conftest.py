@@ -5,10 +5,9 @@ from datetime import timedelta
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from homeassistant.util import dt as dt_util
-
 # Vor dem Start von Home Assistant importieren, sonst gewinnt das custom_components des Test-Plugins
-import custom_components.tipsylab  # noqa: E402, F401
+import custom_components.tipsylab  # noqa: F401
+from homeassistant.util import dt as dt_util
 
 DOMAIN = "tipsylab"
 

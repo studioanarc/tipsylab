@@ -19,15 +19,15 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "custom_components", "tipsylab"))
 
-from core.composition import (  # noqa: E402
+from core.composition import (
     DSG_ETHANOL,
     FERMENTABLE_FRACTION,
     G_SUGAR_PER_ABV,
     K_ETHANOL_BRIX,
     WineModel,
 )
-from core.fermentation import T_REF, thermal_factor  # noqa: E402
-from core.physics import YIELD_CO2_SUGAR, henry  # noqa: E402
+from core.fermentation import thermal_factor
+from core.physics import YIELD_CO2_SUGAR, henry
 
 
 @dataclass

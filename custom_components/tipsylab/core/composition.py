@@ -60,7 +60,7 @@ class WineModel:
     @classmethod
     def from_must(
         cls, brix0: float | None = None, sg0: float | None = None, **kwargs: float
-    ) -> "WineModel":
+    ) -> WineModel:
         """Aus Start-Brix und/oder Startdichte des Mosts."""
         if brix0 is None and sg0 is None:
             raise ValueError("Start-Brix oder Startdichte nötig")
@@ -198,7 +198,7 @@ def _usable_pair(model: WineModel, pair: tuple[float, float]) -> bool:
 def _solve(a: list[list[float]], b: list[float]) -> list[float]:
     """Lineares Gleichungssystem (Gauß mit Pivotsuche); klein, ohne numpy."""
     n = len(b)
-    m = [row[:] + [b[i]] for i, row in enumerate(a)]
+    m = [[*row, b[i]] for i, row in enumerate(a)]
     for c in range(n):
         p = max(range(c, n), key=lambda r: abs(m[r][c]))
         m[c], m[p] = m[p], m[c]
@@ -236,7 +236,7 @@ def bottle_abv(
         v = getattr(model, name)
         hi = _final_abvs(replace(model, **{name: v + sig}), dry_sugar, used)
         lo = _final_abvs(replace(model, **{name: v - sig}), dry_sugar, used)
-        add([(h - l) / 2 for h, l in zip(hi, lo)])
+        add([(up - down) / 2 for up, down in zip(hi, lo)])
     for i, (reading, sg) in enumerate(used, start=1):
         for pair_hi, pair_lo in (
             ((reading + PAIR_SIGMA_BRIX, sg), (reading - PAIR_SIGMA_BRIX, sg)),

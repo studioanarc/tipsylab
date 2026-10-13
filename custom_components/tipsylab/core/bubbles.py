@@ -43,9 +43,9 @@ class BubbleAccumulator:
         seq = msg.get("seq")
         seq = int(seq) if isinstance(seq, (int, float)) else None
 
-        if boot is not None and boot == self.boot_id and seq is not None and self.last_seq is not None:
-            if seq <= self.last_seq:
-                return 0.0  # doppelt oder veraltet
+        same = boot is not None and boot == self.boot_id
+        if same and seq is not None and self.last_seq is not None and seq <= self.last_seq:
+            return 0.0  # doppelt oder veraltet
 
         if boot is not None:
             same_boot = boot == self.boot_id
@@ -79,7 +79,7 @@ class BubbleAccumulator:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> "BubbleAccumulator":
+    def from_dict(cls, data: dict[str, Any] | None) -> BubbleAccumulator:
         if not data:
             return cls()
         known = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}

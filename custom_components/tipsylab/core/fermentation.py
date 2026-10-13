@@ -22,6 +22,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from itertools import pairwise
 import math
 from statistics import median
 
@@ -147,9 +148,9 @@ def thermal_days(temps: Series, a: datetime, b: datetime, q10: float, default: f
     """Thermische Zeit zwischen a und b in Tagen (Temperatur stückweise konstant)."""
     if b <= a:
         return 0.0
-    edges = [a] + [t for t in temps.t if a < t < b] + [b]
+    edges = [a, *(t for t in temps.t if a < t < b), b]
     total = 0.0
-    for t0, t1 in zip(edges, edges[1:]):
+    for t0, t1 in pairwise(edges):
         temp = temps.at(t0) if temps else default
         total += thermal_factor(temp if temp is not None else default, q10) * (t1 - t0).total_seconds() / 86400.0
     return total
@@ -299,7 +300,7 @@ def relative_rate(
 
 
 def _weight_points(
-    est: "Estimate",
+    est: Estimate,
     settings: Settings,
     start: datetime,
     anc: list[Anchor],
@@ -462,7 +463,7 @@ def estimate(
     abv_tol = ABV_TOLERANCE_SPARKLING if settings.mode == "petnat" and est.category != "still" else ABV_TOLERANCE_STILL
     _set_bottle_abv(est, bottle_abv(model, settings.dry_sugar_g_l, abv_pairs, abv_tol))
 
-    anc = sorted([Anchor(start, model.s0, SIGMA["start"], "start")] + list(anchors or []), key=lambda a: a.t)
+    anc = sorted([Anchor(start, model.s0, SIGMA["start"], "start"), *(anchors or [])], key=lambda a: a.t)
     anc = [a for a in anc if a.t <= now]
     last = anc[-1]
 
@@ -553,7 +554,7 @@ def estimate(
     est.abv = model.abv(s_now)
     if s_now < settings.dry_sugar_g_l:  # trockener als angenommen: dann endet die Gärung hier
         _set_bottle_abv(est, bottle_abv(model, s_now, abv_pairs, abv_tol))
-    est.series = sorted(points + [(now, s_now, sigma)], key=lambda p: p[0])
+    est.series = sorted([*points, (now, s_now, sigma)], key=lambda p: p[0])
     est.planned_temp = settings.planned_temp(s_now, temp_now)
 
     # --- Fenster, Anzeige ----------------------------------------------------------------------
@@ -622,9 +623,9 @@ def estimate(
             est.display_state = "none"
             est.notes.append("Zucker fällt kaum, ohne dass es kühler wurde")
 
-    if est.best is not None and est.best - now <= timedelta(hours=48):
-        if sigma > 1.5 or now - last.t > timedelta(hours=24):
-            est.measurement_recommended = True
+    near = est.best is not None and est.best - now <= timedelta(hours=48)
+    if near and (sigma > 1.5 or now - last.t > timedelta(hours=24)):
+        est.measurement_recommended = True
     if est.status == "stuck":
         est.measurement_recommended = True
     return est
