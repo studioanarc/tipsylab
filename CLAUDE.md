@@ -26,7 +26,9 @@ regeln vor Ort. Übersicht der Boxen: `boxen/README.md`.
 - `boxen/gaerbox/`: Gärbox-Firmware (PlatformIO): Blasen, Temperatur, optional HX711-Waage.
 - `boxen/esphome/`: Tankbox, Waagebox, Flaschenbox, Kellerluftbox, `pakete/waage.yaml` für
   bestehende ESP32.
-- `boxen/heizbox/`: Shelly-Skript. `blueprints/`: Benachrichtigungen.
+- `boxen/heizbox/`: Shelly-Skript. `blueprints/`: Benachrichtigungen und DataWein-Feed.
+- `website/datawein/`: Empfänger `feed.php` und `tipsylab.js` für die DataWein-Seite; was öffentlich
+  wird, bestimmt `core/feed.py` (nur gerundete Zahlen, keine Geräte-IDs oder Adressen).
 - `tools/`: `druckmodell.py` (Tabellen im Plan), `simulator.py` (Ansätze mit bekannter Wahrheit,
   auch Waage und Proben), `make_translations.py`, `make_atom_font.py`, `panel-vorschau/`.
 

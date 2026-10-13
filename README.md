@@ -39,6 +39,7 @@ TIPSYLAB besteht aus zwei Teilen:
 | **Kellerluftbox** | CO₂ und Klima im Keller | ESPHome | [`boxen/esphome`](boxen/esphome) |
 | **Heizbox** | Shelly an der Heizmanschette | Shelly-Skript | [`boxen/heizbox`](boxen/heizbox) |
 | **Benachrichtigungen** | Abfüllfenster und Alarme aufs Handy | Blueprints | [`blueprints/automation/tipsylab`](blueprints/automation/tipsylab) |
+| **DataWein-Feed** | echte Zahlen auf der Website, ohne Home Assistant ins Internet zu stellen | Blueprint, PHP, JavaScript | [`website/datawein`](website/datawein) |
 
 Welche Box wofür, Einkaufslisten, Anschlüsse und Einrichtung: **[boxen/README.md](boxen/README.md)**.
 Hintergrund, Physik und Entscheidungen: [docs/PLAN-Abfuellzeitpunkt.md](docs/PLAN-Abfuellzeitpunkt.md).
@@ -104,7 +105,8 @@ es privat bleibt, die Ordner von Hand kopieren: `custom_components/tipsylab` nac
 ```
 custom_components/tipsylab/   Integration; core/ rechnet ohne Home Assistant, frontend/ ist das Panel
 boxen/                        Software der Boxen (gaerbox/, esphome/, heizbox/) und ihre Doku
-blueprints/                   Benachrichtigungen
+blueprints/                   Benachrichtigungen, DataWein-Feed
+website/datawein/             Empfänger (PHP) und Skript der DataWein-Seite
 docs/                         Plan und UI-Entwurf
 tools/                        Druckmodell, Simulator, Generatoren für Übersetzungen und Display-Schrift, Panel-Vorschau
 tests/                        Kern gegen den Simulator, Integration in Home Assistant, Panel-Physik
@@ -131,7 +133,10 @@ Quelle, Alkohol fürs Etikett; nach dem Abfüllen Messflasche mit Alarm, Archiv,
 Hauswerte; Gärbox-Firmware 2.2 mit Display und optionaler Waage; ESPHome für Tank-, Waage-,
 Flaschen- und Kellerluftbox; Heizbox-Skript; Blueprints.
 
-Noch offen: der öffentliche Feed für die DataWein-Seite.
+Dazu der öffentliche Feed für die DataWein-Seite (Empfänger und Seite in `website/datawein`).
+
+Noch offen aus dem Plan sind nur die Extras aus Phase 6 (Kühlung per Home Assistant, Kolorimeter,
+Füllstand) und das Lernen von Startwerten für Spindel-Versatz und Blasen je Gerät.
 
 Geprüft ist, was ohne Hardware geht: Tests gegen einen Simulator mit bekannter Wahrheit, Builds,
 Konfigurationsprüfung, das Panel im Browser mit echten Daten der Integration, das Shelly-Skript in
