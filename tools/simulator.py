@@ -94,6 +94,10 @@ class SimResult:
     def abv_at(self, t: datetime) -> float:
         return self.model.abv(self.sugar_at(t))
 
+    def lab(self, t: datetime, rng: random.Random, sugar_noise: float = 0.5, abv_noise: float = 0.1) -> tuple[float, float]:
+        """Laborbefund einer Probe: Restzucker (g/L) und Alkohol (% vol)."""
+        return self.sugar_at(t) + rng.gauss(0, sugar_noise), self.abv_at(t) + rng.gauss(0, abv_noise)
+
     def bottle_abv(self, dry_sugar: float) -> float:
         """Wahrer Alkohol nach vollständiger Vergärung bis dry_sugar."""
         return self.model.abv(dry_sugar)

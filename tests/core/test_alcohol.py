@@ -10,6 +10,8 @@ from core.composition import (
     ABV_PARAM_SIGMA,
     DSG_ETHANOL,
     K_ETHANOL_BRIX,
+    LAB_SIGMA_ABV,
+    LAB_SIGMA_SUGAR,
     PAIR_SIGMA_BRIX,
     PAIR_SIGMA_SG,
     WineModel,
@@ -151,3 +153,39 @@ def test_drier_than_assumed_ends_there():
     r = sim.refractometer(now, random.Random(5), 0.0)
     e = estimate(model, Settings(mode="still"), sim.start, now, [Anchor(now, model.sugar_from_refractometer(r), 0.5)])
     assert e.abv_end == pytest.approx(e.abv, abs=0.01)
+
+
+@pytest.mark.parametrize("still", [False, True])
+def test_lab_value_makes_the_label_safe(still):
+    """Ein Laborbefund (Restzucker und Alkohol derselben Probe) trifft auch eine abweichende Wahrheit."""
+    sim = simulate(SimConfig(g_sugar_per_abv=17.6, fermentable_fraction=0.90, days=16, cool_at_sugar=None))
+    model = WineModel.from_must(brix0=20.5)
+    day = 15 if still else 9  # Stillwein durchgegoren, Pet Nat kurz vor dem Abfüllen
+    now = sim.start + timedelta(days=day)
+    sugar, abv = sim.lab(now, random.Random(4))
+    settings = Settings(mode="still") if still else Settings(mode="petnat", target_bar_20c=2.5)
+    e = estimate(model, settings, sim.start, now, [Anchor(now, sugar, 0.5, "sugar", abv=abv)])
+    truth = sim.bottle_abv(DRY) if sim.sugar_at(now) > DRY else sim.abv_at(now)
+    assert e.abv_labs == 1
+    assert e.abv_end_sigma < 0.15
+    assert abs(e.abv_end - truth) < 2 * e.abv_end_sigma
+    assert e.abv_label_ok
+
+
+def test_lab_values_are_honest():
+    rng = random.Random(21)
+    defaults = WineModel.from_must(brix0=20.0)
+    hits, n = 0, 200
+    for _ in range(n):
+        brix = rng.uniform(17, 24)
+        truth = WineModel.from_must(
+            brix0=brix,
+            **{k: rng.gauss(getattr(defaults, k), s) for k, s in ABV_PARAM_SIGMA.items() if k != "brix0"},
+        )
+        model = WineModel.from_must(brix0=brix + rng.gauss(0, ABV_PARAM_SIGMA["brix0"]))
+        s = rng.uniform(0.0, 0.15) * truth.s0
+        lab = (truth.abv(s) + rng.gauss(0, LAB_SIGMA_ABV), max(0.0, s + rng.gauss(0, LAB_SIGMA_SUGAR)))
+        b = bottle_abv(model, DRY, labs=[lab])
+        final = truth.abv(min(DRY, s))
+        hits += abs(b.value - final) <= 2 * b.sigma
+    assert hits / n >= 0.9

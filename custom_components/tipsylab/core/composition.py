@@ -38,6 +38,8 @@ ABV_PARAM_SIGMA = {
 PAIR_SIGMA_BRIX = 0.1  # Refraktometer, °Bx
 PAIR_SIGMA_SG = 0.0005  # Hydrometer oder Dichtemeter, entgaste Probe bei 20 °C
 PAIR_MAX_FRACTION = 0.5  # Messpaare zählen erst, wenn höchstens die Hälfte des Zuckers übrig ist
+LAB_SIGMA_ABV = 0.1  # Laboranalyse Alkohol, % vol (Destillation und Dichte oder FTIR)
+LAB_SIGMA_SUGAR = 0.5  # Laboranalyse Restzucker (Glucose + Fructose), g/L
 # VO (EU) 2019/33, Art. 44: Angabe in ganzen oder halben % vol; Abweichung zur Analyse höchstens
 # ±0,5 % vol, bei Schaum- und Perlwein ±0,8 % vol.
 ABV_TOLERANCE_STILL = 0.5
@@ -170,6 +172,7 @@ class BottleAbv:
     label: float
     label_ok: bool
     pairs: int
+    labs: int = 0
 
 
 def abv_label(value: float) -> float:
@@ -177,16 +180,24 @@ def abv_label(value: float) -> float:
     return math.floor(value * 2 + 0.5) / 2
 
 
-def _final_abvs(model: WineModel, dry_sugar: float, pairs: list[tuple[float, float]]) -> list[float]:
-    """Endalkohol auf zwei Wegen: aus dem Most und aus jedem Messpaar.
+def _from_measured(model: WineModel, dry_sugar: float, sugar: float, abv: float) -> float:
+    """Endalkohol aus einem gemessenen Alkohol: Der Rest bis trocken kommt im selben Verhältnis
+    dazu, in dem bisher Zucker zu Alkohol wurde. So hängt es nicht vom Umrechnungsfaktor ab."""
+    return abv + max(0.0, sugar - dry_sugar) * abv / max(model.s0 - sugar, 1.0)
 
-    Das Messpaar misst den Alkohol direkt; der Rest bis trocken kommt im selben Verhältnis dazu,
-    in dem bisher Zucker zu Alkohol wurde. So hängt es nicht vom Umrechnungsfaktor ab.
-    """
+
+def _final_abvs(
+    model: WineModel,
+    dry_sugar: float,
+    pairs: list[tuple[float, float]],
+    labs: list[tuple[float, float]] | tuple[()] = (),
+) -> list[float]:
+    """Endalkohol auf drei Wegen: aus dem Most, aus jedem Messpaar und aus jedem Laborwert."""
     out = [max(0.0, model.s0 - dry_sugar) / model.g_sugar_per_abv]
     for reading, sg in pairs:
-        sugar, abv = model.sugar_and_abv_from_pair(reading, sg)
-        out.append(abv + max(0.0, sugar - dry_sugar) * abv / max(model.s0 - sugar, 1.0))
+        out.append(_from_measured(model, dry_sugar, *model.sugar_and_abv_from_pair(reading, sg)))
+    for abv, sugar in labs:
+        out.append(_from_measured(model, dry_sugar, sugar, abv))
     return out
 
 
@@ -214,16 +225,18 @@ def bottle_abv(
     dry_sugar: float,
     pairs: list[tuple[float, float]] | tuple[tuple[float, float], ...] = (),
     tolerance: float = ABV_TOLERANCE_SPARKLING,
+    labs: list[tuple[float, float]] | tuple[tuple[float, float], ...] = (),
 ) -> BottleAbv:
     """Alkohol in der Flasche nach vollständiger Vergärung bis dry_sugar.
 
-    Most und Messpaare (Refraktometer °Bx, relative Dichte an derselben Probe) liefern je einen
-    Schätzwert. Sie teilen sich Fehlerquellen (vergärbarer Anteil, Koeffizienten), deshalb werden
-    sie mit ihrer vollen Kovarianz gewichtet (verallgemeinerte kleinste Quadrate), nicht wie
-    unabhängige Messungen.
+    Most, Messpaare (Refraktometer °Bx, relative Dichte an derselben Probe) und Laborwerte
+    (Alkohol % vol, Restzucker g/L derselben Probe) liefern je einen Schätzwert. Sie teilen sich
+    Fehlerquellen (vergärbarer Anteil, Koeffizienten), deshalb werden sie mit ihrer vollen
+    Kovarianz gewichtet (verallgemeinerte kleinste Quadrate), nicht wie unabhängige Messungen.
     """
     used = [p for p in pairs if _usable_pair(model, p)]
-    base = _final_abvs(model, dry_sugar, used)
+    used_labs = [(abv, sugar) for abv, sugar in labs if 0.5 < abv < 25.0 and sugar < model.s0]
+    base = _final_abvs(model, dry_sugar, used, used_labs)
     n = len(base)
     cov = [[0.0] * n for _ in range(n)]
 
@@ -234,22 +247,34 @@ def bottle_abv(
 
     for name, sig in ABV_PARAM_SIGMA.items():
         v = getattr(model, name)
-        hi = _final_abvs(replace(model, **{name: v + sig}), dry_sugar, used)
-        lo = _final_abvs(replace(model, **{name: v - sig}), dry_sugar, used)
+        hi = _final_abvs(replace(model, **{name: v + sig}), dry_sugar, used, used_labs)
+        lo = _final_abvs(replace(model, **{name: v - sig}), dry_sugar, used, used_labs)
         add([(up - down) / 2 for up, down in zip(hi, lo)])
-    for i, (reading, sg) in enumerate(used, start=1):
-        for pair_hi, pair_lo in (
+    # Gerätefehler: unabhängig je Messung
+    k = 1
+    for reading, sg in used:
+        for up, down in (
             ((reading + PAIR_SIGMA_BRIX, sg), (reading - PAIR_SIGMA_BRIX, sg)),
             ((reading, sg + PAIR_SIGMA_SG), (reading, sg - PAIR_SIGMA_SG)),
         ):
-            d = (_final_abvs(model, dry_sugar, [pair_hi])[1] - _final_abvs(model, dry_sugar, [pair_lo])[1]) / 2
-            cov[i][i] += d * d
+            d = (_final_abvs(model, dry_sugar, [up])[1] - _final_abvs(model, dry_sugar, [down])[1]) / 2
+            cov[k][k] += d * d
+        k += 1
+    for abv, sugar in used_labs:
+        for up, down in (
+            ((abv + LAB_SIGMA_ABV, sugar), (abv - LAB_SIGMA_ABV, sugar)),
+            ((abv, sugar + LAB_SIGMA_SUGAR), (abv, sugar - LAB_SIGMA_SUGAR)),
+        ):
+            d = (_final_abvs(model, dry_sugar, [], [up])[1] - _final_abvs(model, dry_sugar, [], [down])[1]) / 2
+            cov[k][k] += d * d
+        k += 1
     w = _solve(cov, [1.0] * n)
     total = sum(w)
     value = sum(wi * f for wi, f in zip(w, base)) / total
     sigma = math.sqrt(1.0 / total)
     label = abv_label(value)
-    return BottleAbv(value, sigma, label, label_within(label, value, sigma, tolerance), len(used))
+    ok = label_within(label, value, sigma, tolerance)
+    return BottleAbv(value, sigma, label, ok, len(used), len(used_labs))
 
 
 def label_within(label: float, value: float, sigma: float, tolerance: float) -> bool:

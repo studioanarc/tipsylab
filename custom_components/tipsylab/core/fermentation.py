@@ -69,6 +69,7 @@ class Anchor:
     sigma: float
     kind: str = "brix"
     pair: tuple[float, float] | None = None  # Refraktometer °Bx und relative Dichte derselben Probe
+    abv: float | None = None  # Laborwert Alkohol (% vol) derselben Probe wie der Zucker
 
 
 @dataclass(frozen=True)
@@ -395,6 +396,7 @@ class Estimate:
     abv_label: float | None = None
     abv_label_ok: bool = False
     abv_pairs: int = 0
+    abv_labs: int = 0
     rate_g_l_day: float | None = None
     target_sugar: float | None = None
     best: datetime | None = None
@@ -427,7 +429,8 @@ class Estimate:
 
 def _set_bottle_abv(est: Estimate, bottle: BottleAbv) -> None:
     est.abv_end, est.abv_end_sigma = bottle.value, bottle.sigma
-    est.abv_label, est.abv_label_ok, est.abv_pairs = bottle.label, bottle.label_ok, bottle.pairs
+    est.abv_label, est.abv_label_ok = bottle.label, bottle.label_ok
+    est.abv_pairs, est.abv_labs = bottle.pairs, bottle.labs
 
 
 def estimate(
@@ -460,8 +463,9 @@ def estimate(
 
     # Alkohol in der Flasche: braucht nur Most, Endzucker und Messpaare, steht also ab dem Start
     abv_pairs = [a.pair for a in anchors or [] if a.pair is not None and a.t <= now]
+    abv_labs = [(a.abv, a.sugar) for a in anchors or [] if a.abv is not None and a.t <= now]
     abv_tol = ABV_TOLERANCE_SPARKLING if settings.mode == "petnat" and est.category != "still" else ABV_TOLERANCE_STILL
-    _set_bottle_abv(est, bottle_abv(model, settings.dry_sugar_g_l, abv_pairs, abv_tol))
+    _set_bottle_abv(est, bottle_abv(model, settings.dry_sugar_g_l, abv_pairs, abv_tol, abv_labs))
 
     anc = sorted([Anchor(start, model.s0, SIGMA["start"], "start"), *(anchors or [])], key=lambda a: a.t)
     anc = [a for a in anc if a.t <= now]
@@ -553,7 +557,7 @@ def estimate(
     est.sugar, est.sigma = s_now, sigma
     est.abv = model.abv(s_now)
     if s_now < settings.dry_sugar_g_l:  # trockener als angenommen: dann endet die Gärung hier
-        _set_bottle_abv(est, bottle_abv(model, s_now, abv_pairs, abv_tol))
+        _set_bottle_abv(est, bottle_abv(model, s_now, abv_pairs, abv_tol, abv_labs))
     est.series = sorted([*points, (now, s_now, sigma)], key=lambda p: p[0])
     est.planned_temp = settings.planned_temp(s_now, temp_now)
 
