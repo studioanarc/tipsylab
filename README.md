@@ -56,6 +56,10 @@ Hintergrund, Physik und Entscheidungen: [docs/PLAN-Abfuellzeitpunkt.md](docs/PLA
 
 ## Einrichten
 
+Das Repo ist privat. HACS und der Blueprint-Import per Link brauchen ein öffentliches Repo; solange
+es privat bleibt, die Ordner von Hand kopieren: `custom_components/tipsylab` nach
+`/config/custom_components/` und `blueprints/automation/tipsylab` nach `/config/blueprints/automation/`.
+
 1. **Integration:** HACS → Benutzerdefinierte Repositories → `https://github.com/studioanarc/tipsylab`,
    Typ Integration → TIPSYLAB installieren (ohne HACS: `custom_components/tipsylab` in den
    gleichnamigen Ordner der Home-Assistant-Konfiguration kopieren). Home Assistant ab 2025.8

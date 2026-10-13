@@ -49,10 +49,10 @@ pio run -e m5stack-atoms3-ota -t uploadfs --upload-port tipsy-a1b2c3.local   # w
 which works from anywhere that can reach the device:
 
 ```bash
-pio run -e m5stack-atoms3-http -t upload   --upload-port 192.168.1.187   # firmware
-pio run -e m5stack-atoms3-http -t uploadfs --upload-port 192.168.1.187   # web UI
+pio run -e m5stack-atoms3-http -t upload   --upload-port <box-ip>   # firmware
+pio run -e m5stack-atoms3-http -t uploadfs --upload-port <box-ip>   # web UI
 # or by hand:
-curl -u admin:<ota password> -F "image=@.pio/build/m5stack-atoms3/firmware.bin" http://192.168.1.187/update
+curl -u admin:<ota password> -F "image=@.pio/build/m5stack-atoms3/firmware.bin" http://<box-ip>/update
 ```
 
 The OTA password comes from `secrets.ini` (`TIPSY_OTA_PASS` / `ota_password`) and protects both
