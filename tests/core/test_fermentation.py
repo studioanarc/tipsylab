@@ -6,10 +6,12 @@ import random
 
 import pytest
 
+from core.composition import WineModel
 from core.fermentation import Anchor, Settings, estimate, remove_steps
 from simulator import SimConfig, simulate
 
 PLAN = ((None, 17.0), (30.0, 12.0))
+MODEL = WineModel.from_must(brix0=20.5)
 
 
 def run(sim, day, settings, spindle=True, bubbles=True, anchors_every=1.0, seed=1, weight=False):
@@ -213,3 +215,34 @@ def test_before_the_start_there_is_nothing_to_estimate(sim):
     e = estimate(sim.model, Settings(), sim.start, sim.start - timedelta(days=1))
     assert e.status == "waiting"
     assert e.sugar is None
+
+
+def test_saturated_counter_is_not_used_for_calibration():
+    """Läuft der Zähler an der Grenze, wird über diese Strecke nicht geeicht (Simulator mit Zählgrenze)."""
+    sim = simulate(SimConfig(max_bubbles_per_min=120))
+    assert sim.saturated
+    now = sim.start + timedelta(days=9)
+    rng = random.Random(2)
+    anchors = [
+        Anchor(sim.start + timedelta(days=d), sim.model.sugar_from_refractometer(sim.refractometer(sim.start + timedelta(days=d), rng, 0.1)), 2.5)
+        for d in (3, 5)
+    ]
+    upto = lambda xs: [x for x in xs if x[0] <= now]  # noqa: E731
+    args = (sim.model, Settings(temp_plan=PLAN), sim.start, now, anchors, None, upto(sim.bubbles), upto(sim.temps))
+    assert estimate(*args).bubble_g_l_per_bubble is not None  # ohne die Meldung würde geeicht
+    flagged = estimate(*args, saturated=[t for t in sim.saturated if t <= now])
+    assert flagged.bubble_g_l_per_bubble is None
+    assert any("gesättigt" in n for n in flagged.notes)
+
+
+def test_bubbles_stop_counting_at_saturation_after_the_anchor():
+    start = datetime(2026, 9, 1, 8, 0)
+    a1, a2 = start + timedelta(days=4), start + timedelta(days=5)
+    bubbles = [(start + timedelta(hours=h), 1000.0 * h) for h in range(24 * 7)]
+    anchors = [Anchor(a1, 60.0, 1.0), Anchor(a2, 40.0, 1.0)]
+    now = start + timedelta(days=6)
+    stop = a2 + timedelta(hours=6)
+    est = estimate(MODEL, Settings(), start, now, anchors, None, bubbles, None, saturated=[stop])
+    assert est.bubble_g_l_per_bubble is not None
+    late = [t for t, _, _ in est.series if a2 < t < now and t >= stop]
+    assert not late  # nach der gesättigten Meldung keine Blasen-Punkte mehr

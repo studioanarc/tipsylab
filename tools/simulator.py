@@ -73,6 +73,7 @@ class SimResult:
     temps: list[tuple[datetime, float]] = field(default_factory=list)
     gravity: list[tuple[datetime, float]] = field(default_factory=list)
     bubbles: list[tuple[datetime, float]] = field(default_factory=list)  # kumuliert
+    saturated: list[datetime] = field(default_factory=list)  # Zähler an der Grenze: zählt zu wenig
     weight: list[tuple[datetime, float]] = field(default_factory=list)  # Anzeige der Waage, kg
 
     def sugar_at(self, t: datetime) -> float:
@@ -159,7 +160,10 @@ def simulate(cfg: SimConfig | None = None, start: datetime | None = None) -> Sim
         wine_kg -= out * cfg.volume_l / 1000.0  # entwichenes CO2 verlässt das Gefäß
         gas_ml = out * cfg.volume_l / 44.01 * 22414 * (temp + 273.15) / 273.15
         n = gas_ml * (1 - cfg.leak_fraction) / cfg.ml_per_bubble
-        n = min(n, cfg.max_bubbles_per_min * cfg.step_min)
+        cap = cfg.max_bubbles_per_min * cfg.step_min
+        if n > cap:
+            res.saturated.append(t + step)  # wie die Gärbox: "saturated" in der nächsten Meldung
+        n = min(n, cap)
         bubbles += max(0.0, n)
     return res
 

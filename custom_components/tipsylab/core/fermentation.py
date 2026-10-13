@@ -28,6 +28,7 @@ from statistics import median
 
 from .bottling import fill_conditions
 from .composition import ABV_PARAM_SIGMA, ABV_TOLERANCE_SPARKLING, ABV_TOLERANCE_STILL, BottleAbv, WineModel, bottle_abv
+from .forecast import chance_above, forecast, measurement_gain, worth_measuring
 from .physics import (
     BOTTLES,
     FILL_MID,
@@ -215,50 +216,6 @@ def fit_decay(points: list[tuple[float, float, float]], tau_now: float | None = 
     return DecayFit(k=k, rel_err=rel, n=len(pts))
 
 
-def time_to_sugar(
-    now: datetime, s_now: float, s_target: float, k: float, settings: Settings, temp_now: float | None
-) -> datetime | None:
-    """Zeitpunkt, an dem S den Zielwert erreicht (Temperaturplan berücksichtigt)."""
-    if s_target >= s_now:
-        return now
-    if k <= 0:
-        return None
-    need = math.log(s_now / max(s_target, 0.05)) / k  # thermische Tage
-    step = timedelta(minutes=30)
-    step_days = step.total_seconds() / 86400.0
-    t, tau = now, 0.0
-    while t - now <= MAX_FORECAST:
-        s = s_now * math.exp(-k * tau)
-        temp = settings.planned_temp(s, temp_now)
-        dtau = thermal_factor(temp, settings.q10) * step_days
-        if tau + dtau >= need:
-            return t + step * ((need - tau) / dtau)
-        tau += dtau
-        t += step
-    return None
-
-
-def project(
-    now: datetime,
-    s_now: float,
-    k: float,
-    settings: Settings,
-    temp_now: float | None,
-    until: datetime,
-    step: timedelta = timedelta(hours=1),
-) -> list[tuple[datetime, float]]:
-    """Zuckerverlauf ab jetzt bis `until`, gerechnet wie time_to_sugar (Temperaturplan inklusive)."""
-    out = [(now, s_now)]
-    step_days = step.total_seconds() / 86400.0
-    t, s = now, s_now
-    while t < until:
-        temp = settings.planned_temp(s, temp_now)
-        s *= math.exp(-k * thermal_factor(temp, settings.q10) * step_days)
-        t += step
-        out.append((t, s))
-    return out
-
-
 def remove_steps(
     points: list[tuple[datetime, float]], max_kg_per_min: float, noise_kg: float
 ) -> tuple[list[tuple[datetime, float]], int]:
@@ -426,6 +383,10 @@ class Estimate:
     category: str | None = None
     planned_temp: float | None = None
     measurement_recommended: bool = False
+    window_h: float | None = None  # halbe Breite des Fensters P10–P90 (h)
+    window_h_measured: float | None = None  # dasselbe nach einer Refraktometer-Messung jetzt
+    p_over_target: float | None = None  # wenn jetzt abgefüllt: Chance auf mehr Druck als das Ziel
+    p_over_limit: float | None = None  # wenn jetzt abgefüllt: Chance, im ungünstigen Fall über der Grenze
     spindle_offset: float | None = None
     bubble_g_l_per_bubble: float | None = None
     weight_g_l_per_kg: float | None = None
@@ -455,6 +416,7 @@ def estimate(
     temps: list[tuple[datetime, float]] | None = None,
     weight: list[tuple[datetime, float]] | None = None,
     abv_now: datetime | None = None,
+    saturated: list[datetime] | None = None,
 ) -> Estimate:
     est = Estimate(now=now)
     temp_s = Series(temps)
@@ -519,15 +481,22 @@ def estimate(
     points += grav_points
 
     # --- Blasen: Eichung zwischen den letzten beiden Ankern ------------------------------------
+    # Läuft der Zähler an der Grenze (saturated), zählt er zu wenig: Über so eine Strecke wird nicht
+    # geeicht, und nach dem Anker zählen Blasen nur bis zur ersten gesättigten Meldung.
     bub_points: list[tuple[datetime, float, float]] = []
+    sat = sorted(saturated or [])
     if bub and len(anc) >= 2:
         a1, a2 = anc[-2], anc[-1]
         n1, n2 = bub.interpolate(a1.t), bub.interpolate(a2.t)
-        if n1 is not None and n2 is not None and n2 - n1 >= 100 and a1.sugar - a2.sugar >= 1.0:
+        clean = not any(a1.t < t_s <= a2.t for t_s in sat)
+        if not clean:
+            est.notes.append("Blasenzähler war gesättigt: Blasen zählen erst nach der nächsten Messung wieder")
+        if clean and n1 is not None and n2 is not None and n2 - n1 >= 100 and a1.sugar - a2.sugar >= 1.0:
             k_b = (a1.sugar - a2.sugar) / (n2 - n1)
             est.bubble_g_l_per_bubble = k_b
+            stop = next((t_s for t_s in sat if t_s > a2.t), None)
             for t_b, n in zip(bub.t, bub.v):
-                if a2.t < t_b <= now:
+                if a2.t < t_b <= now and (stop is None or t_b < stop):
                     ds = k_b * (n - n2)
                     bub_points.append((t_b, a2.sugar - ds, a2.sigma + BUBBLE_REL_SIGMA * abs(ds)))
     points += bub_points[:: max(1, len(bub_points) // 200)]
@@ -580,24 +549,31 @@ def estimate(
 
     # --- Fenster, Anzeige ----------------------------------------------------------------------
     if fit is not None:
+        # Stufe 2: Monte Carlo über Restzucker, Rate, Drift, Q10 und Kellertemperatur (core/forecast.py)
         est.rate_g_l_day = fit.k * s_now * thermal_factor(temp_now, settings.q10)
         delta = max(1.0, math.sqrt(sigma**2 + 0.5**2))
-        est.best = time_to_sugar(now, s_now, target, fit.k, settings, temp_now)
-        est.start = time_to_sugar(now, s_now, target + delta, fit.k * (1 + fit.rel_err), settings, temp_now)
-        est.end = time_to_sugar(now, s_now, max(0.3, target - delta), fit.k * (1 - fit.rel_err), settings, temp_now)
         est.past = s_now < target - delta
-        # Kurve fürs Diagramm: Mitte, oben langsam (k·(1−rel)) + σ, unten schnell (k·(1+rel)) − σ
+
+        def plan_temp(s: float) -> float | None:
+            return settings.planned_temp(s, temp_now)
+
+        thresholds = [th for th, _ in settings.temp_plan if th is not None]
+        model_args = (fit.k, fit.rel_err, target, plan_temp, temp_now, settings.q10, thresholds)
+        fc = forecast(now, s_now, sigma, *model_args, MAX_FORECAST)
+        est.start, est.best, est.end = fc.p10, fc.p50, fc.p90
         ends = [t for t in (est.best, est.end) if t is not None]
         until = min(max(ends, default=now + timedelta(days=3)) + FORECAST_TAIL, now + FORECAST_MAX)
-        mid = project(now, s_now, fit.k, settings, temp_now, until)
-        slow = project(now, s_now, fit.k * (1 - fit.rel_err), settings, temp_now, until)
-        fast = project(now, s_now, fit.k * (1 + fit.rel_err), settings, temp_now, until)
-        est.forecast = [
-            (t, s, s_hi + sigma, max(0.0, s_lo - sigma))
-            for (t, s), (_, s_hi), (_, s_lo) in zip(mid, slow, fast)
-        ]
+        est.forecast = forecast(now, s_now, sigma, *model_args, MAX_FORECAST, until=until).band
+        gain = measurement_gain(s_now, sigma, SIGMA["brix"], *model_args)
+        if gain is not None:
+            est.window_h, est.window_h_measured = gain
     if est.best is not None:
         est.dub_hours = max(0.0, (est.best - now).total_seconds() / 3600.0)
+    if settings.mode == "petnat":  # wenn jetzt abgefüllt: Chance auf mehr Druck als Ziel oder Grenze
+        bottle = BOTTLES[settings.bottle]
+        limit_sugar = sugar_for_pressure(bottle.limit_bar, 20.0, bottle, settings.fill_worst, settings.malic())
+        est.p_over_target = chance_above(s_now, sigma, target)
+        est.p_over_limit = chance_above(s_now, sigma, limit_sugar)
     still = settings.mode == "still"
     if est.past and not still:
         est.display_state = "late"
@@ -647,6 +623,9 @@ def estimate(
     near = est.best is not None and est.best - now <= timedelta(hours=48)
     if near and (sigma > 1.5 or now - last.t > timedelta(hours=24)):
         est.measurement_recommended = True
+    soon = est.best is not None and est.best - now <= SOON
+    if soon and est.window_h is not None and worth_measuring((est.window_h, est.window_h_measured)):
+        est.measurement_recommended = True  # eine Messung jetzt macht das Fenster deutlich enger
     if est.status == "stuck":
         est.measurement_recommended = True
     return est
