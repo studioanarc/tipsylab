@@ -246,3 +246,43 @@ def test_bubbles_stop_counting_at_saturation_after_the_anchor():
     assert est.bubble_g_l_per_bubble is not None
     late = [t for t, _, _ in est.series if a2 < t < now and t >= stop]
     assert not late  # nach der gesättigten Meldung keine Blasen-Punkte mehr
+
+
+@pytest.mark.parametrize("day", [3, 5])
+def test_learned_bubbles_estimate_before_the_first_measurement(day):
+    """Hauswert der Gärbox (Blasen je g CO2): Schätzung ab dem Start, ohne eine einzige Messung."""
+    sim = simulate(SimConfig(volume_l=50))
+    now = sim.start + timedelta(days=day)
+    upto = lambda xs: [x for x in xs if x[0] <= now]  # noqa: E731
+    learned = Settings(temp_plan=PLAN, volume_l=50, bubbles_per_g=sim.bubbles_per_g(17.0), bubbles_per_g_rel=0.15)
+    est = estimate(sim.model, learned, sim.start, now, [], None, upto(sim.bubbles), upto(sim.temps))
+    truth = sim.sugar_at(now)
+    assert est.sugar is not None
+    assert abs(est.sugar - truth) <= max(6.0, 2 * est.sigma)
+    assert any("Hauswert" in n for n in est.notes)
+    without = estimate(sim.model, Settings(temp_plan=PLAN, volume_l=50), sim.start, now, [], None,
+                       upto(sim.bubbles), upto(sim.temps))
+    assert without.sugar is None  # ohne Hauswert und ohne Messung weiß die App nichts
+
+
+def test_wrong_learned_bubbles_stay_honest():
+    sim = simulate(SimConfig(volume_l=50))
+    now = sim.start + timedelta(days=4)
+    upto = lambda xs: [x for x in xs if x[0] <= now]  # noqa: E731
+    off = Settings(temp_plan=PLAN, volume_l=50, bubbles_per_g=sim.bubbles_per_g(17.0) * 1.3, bubbles_per_g_rel=0.1)
+    est = estimate(sim.model, off, sim.start, now, [], None, upto(sim.bubbles), upto(sim.temps))
+    assert abs(est.sugar - sim.sugar_at(now)) <= 2 * est.sigma  # mindestens 30 % Unsicherheit
+
+
+def test_learned_spindle_offset_until_the_first_match():
+    """Typischer Versatz der Spindel aus dem Archiv, solange kein Anker einen eigenen liefert."""
+    sim = simulate(SimConfig(spindle_offset=0.003, spindle_drift_per_day=0.0))
+    now = sim.start + timedelta(days=3)
+    gravity = [g for g in sim.gravity if sim.start + timedelta(hours=8) <= g[0] <= now]  # Spindel kam später
+    upto = lambda xs: [x for x in xs if x[0] <= now]  # noqa: E731
+    truth = sim.sugar_at(now)
+    raw = estimate(sim.model, Settings(temp_plan=PLAN), sim.start, now, [], gravity, None, upto(sim.temps))
+    learned = Settings(temp_plan=PLAN, spindle_offset_prior=0.003, spindle_offset_prior_sigma=0.0005)
+    est = estimate(sim.model, learned, sim.start, now, [], gravity, None, upto(sim.temps))
+    assert abs(est.sugar - truth) < abs(raw.sugar - truth)
+    assert abs(est.sugar - truth) <= 3.0

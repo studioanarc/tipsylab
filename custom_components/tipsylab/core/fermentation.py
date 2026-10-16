@@ -32,6 +32,7 @@ from .forecast import chance_above, forecast, measurement_gain, worth_measuring
 from .physics import (
     BOTTLES,
     FILL_MID,
+    P_ATM,
     YIELD_CO2_SUGAR,
     FillConditions,
     bottle_pressure,
@@ -46,6 +47,7 @@ SPINDLE_SIGMA = 2.0  # g/L direkt nach dem Abgleich an einem Anker
 SPINDLE_SIGMA_UNCALIBRATED = 4.0
 SPINDLE_DRIFT_PER_DAY = 0.5  # g/L Zuwachs je Tag seit dem Abgleich
 BUBBLE_REL_SIGMA = 0.25  # relative Unsicherheit der geeichten Blasen
+HOUSE_BUBBLE_REL_MIN = 0.3  # Blasen nach dem Hauswert der Gärbox: mindestens so unsicher
 FRESH = timedelta(hours=3)  # so alt darf ein Sensorwert für den Jetzt-Wert sein
 MAX_FORECAST = timedelta(days=30)
 SOON = timedelta(hours=72)
@@ -86,6 +88,11 @@ class Settings:
     volume_l: float | None = None  # für die Waage: Gewichtsverlust je Liter
     saturation: float = FILL_MID.saturation  # gelöstes CO2 beim Abfüllen relativ zur Sättigung (Hauswert)
     g_sugar_per_abv_sigma: float = ABV_PARAM_SIGMA["g_sugar_per_abv"]  # Unsicherheit des Umrechnungsfaktors
+    # Gelernte Gerätewerte aus abgeschlossenen Ansätzen (Archiv); None, solange nichts gelernt ist
+    bubbles_per_g: float | None = None  # Blasen je g entweichendes CO2 an dieser Gärbox
+    bubbles_per_g_rel: float = 0.3  # relative Unsicherheit davon (mindestens HOUSE_BUBBLE_REL_MIN)
+    spindle_offset_prior: float | None = None  # typischer Versatz dieser Spindel (relative Dichte)
+    spindle_offset_prior_sigma: float = 0.0
     # Temperaturplan: Schritte (ab Restzucker g/L oder None für den Start, °C), z. B.
     # ((None, 20.0), (25.0, 14.0)) = 20 °C, ab 25 g/L 14 °C
     temp_plan: tuple[tuple[float | None, float], ...] = ()
@@ -389,6 +396,8 @@ class Estimate:
     p_over_limit: float | None = None  # wenn jetzt abgefüllt: Chance, im ungünstigen Fall über der Grenze
     spindle_offset: float | None = None
     bubble_g_l_per_bubble: float | None = None
+    bubble_rel_sigma: float | None = None  # relative Unsicherheit dieser Eichung (aus den beiden Ankern)
+    spindle_offset_sigma: float | None = None  # Unsicherheit des Versatzes (relative Dichte)
     weight_g_l_per_kg: float | None = None
     weight_calibrated: bool = False
     weight_steps: int = 0
@@ -397,6 +406,28 @@ class Estimate:
     notes: list[str] = field(default_factory=list)
     series: list[tuple[datetime, float, float]] = field(default_factory=list)  # (t, S, σ) fürs Diagramm
     forecast: list[tuple[datetime, float, float, float]] = field(default_factory=list)  # (t, S, oben, unten)
+
+
+def _house_bubble_points(
+    base: Anchor, bub: Series, sat: list[datetime], temp_s: Series, settings: Settings, now: datetime
+) -> list[tuple[datetime, float, float]]:
+    """Zucker aus den Blasen mit dem gelernten Wert der Gärbox (Blasen je g CO2), ab dem jüngsten Anker.
+
+    Ab dem Start löst sich das CO2 zuerst bis zur Sättigung; erst danach blubbert es. Später ist
+    der Wein schon gesättigt. Gesättigte Zählerstrecken beenden die Reihe.
+    """
+    k_h = 1.0 / (settings.bubbles_per_g * YIELD_CO2_SUGAR * settings.volume_l)  # g/L Zucker je Blase
+    rel = max(HOUSE_BUBBLE_REL_MIN, settings.bubbles_per_g_rel)
+    n_base = bub.interpolate(base.t) or 0.0
+    temp = temp_s.at(base.t) if temp_s else None
+    dissolve = henry(temp if temp is not None else T_REF) * P_ATM if base.kind == "start" else 0.0
+    stop = next((t_s for t_s in sat if t_s > base.t), None)
+    out = []
+    for t_b, n in zip(bub.t, bub.v):
+        if base.t < t_b <= now and (stop is None or t_b < stop) and n > n_base:
+            ds = k_h * (n - n_base) + dissolve / YIELD_CO2_SUGAR
+            out.append((t_b, max(0.0, base.sugar - ds), base.sigma + rel * ds))
+    return out
 
 
 def _set_bottle_abv(est: Estimate, bottle: BottleAbv) -> None:
@@ -457,12 +488,18 @@ def estimate(
 
     # --- Spindel: Versatz am jüngsten Anker mit Spindelwerten in der Nähe ---------------------
     offset, offset_t = None, None
+    dsg = model.density(model.s0 * 0.5 + 0.5) - model.density(model.s0 * 0.5 - 0.5)  # Dichte je g/L Zucker
     for a in reversed(anc):
         near = grav.window(a.t - timedelta(hours=3), a.t + timedelta(hours=3))
         if near:
             offset, offset_t = median(near) - model.density(a.sugar), a.t
+            est.spindle_offset_sigma = a.sigma * dsg
             break
     est.spindle_offset = offset
+    house_offset = offset is None and settings.spindle_offset_prior is not None
+    if house_offset:  # noch kein eigener Abgleich: typischer Versatz dieser Spindel aus dem Archiv
+        offset, offset_t = settings.spindle_offset_prior, start
+        est.notes.append("Spindel nach ihrem Hauswert, noch ohne eigenen Abgleich")
     grav_points: list[tuple[datetime, float, float]] = []
     if grav:
         hour = timedelta(hours=1)
@@ -476,6 +513,8 @@ def estimate(
                     sig = SPINDLE_SIGMA_UNCALIBRATED
                 else:
                     sig = SPINDLE_SIGMA + SPINDLE_DRIFT_PER_DAY * abs((t0 - offset_t).total_seconds()) / 86400
+                    if house_offset:
+                        sig += settings.spindle_offset_prior_sigma / dsg
                 grav_points.append((t0 + hour / 2, s, sig))
             t0 += hour
     points += grav_points
@@ -494,11 +533,16 @@ def estimate(
         if clean and n1 is not None and n2 is not None and n2 - n1 >= 100 and a1.sugar - a2.sugar >= 1.0:
             k_b = (a1.sugar - a2.sugar) / (n2 - n1)
             est.bubble_g_l_per_bubble = k_b
+            est.bubble_rel_sigma = math.hypot(a1.sigma, a2.sigma) / (a1.sugar - a2.sugar)
             stop = next((t_s for t_s in sat if t_s > a2.t), None)
             for t_b, n in zip(bub.t, bub.v):
                 if a2.t < t_b <= now and (stop is None or t_b < stop):
                     ds = k_b * (n - n2)
                     bub_points.append((t_b, a2.sugar - ds, a2.sigma + BUBBLE_REL_SIGMA * abs(ds)))
+    if bub and not bub_points and est.bubble_g_l_per_bubble is None and settings.bubbles_per_g and settings.volume_l:
+        bub_points = _house_bubble_points(anc[-1], bub, sat, temp_s, settings, now)
+        if bub_points:
+            est.notes.append("Blasen nach dem Hauswert dieser Gärbox, noch ohne eigene Eichung")
     points += bub_points[:: max(1, len(bub_points) // 200)]
 
     # --- Waage: Gewichtsverlust ist entwichenes CO2 --------------------------------------------

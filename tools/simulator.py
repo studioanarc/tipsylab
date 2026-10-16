@@ -69,12 +69,18 @@ class SimConfig:
 class SimResult:
     start: datetime
     model: WineModel
+    config: SimConfig = field(default_factory=SimConfig)
     truth: list[tuple[datetime, float]] = field(default_factory=list)  # (t, Zucker g/L)
     temps: list[tuple[datetime, float]] = field(default_factory=list)
     gravity: list[tuple[datetime, float]] = field(default_factory=list)
     bubbles: list[tuple[datetime, float]] = field(default_factory=list)  # kumuliert
     saturated: list[datetime] = field(default_factory=list)  # Zähler an der Grenze: zählt zu wenig
     weight: list[tuple[datetime, float]] = field(default_factory=list)  # Anzeige der Waage, kg
+
+    def bubbles_per_g(self, t_c: float) -> float:
+        """Wahre Blasen je g entweichendes CO2 dieses Röhrchens bei t_c (Gasvolumen, Leck, Blasengröße)."""
+        cfg = self.config
+        return 22414 * (t_c + 273.15) / 273.15 / 44.01 * (1 - cfg.leak_fraction) / cfg.ml_per_bubble
 
     def sugar_at(self, t: datetime) -> float:
         best = min(self.truth, key=lambda p: abs((p[0] - t).total_seconds()))
@@ -116,7 +122,7 @@ def simulate(cfg: SimConfig | None = None, start: datetime | None = None) -> Sim
         k_ethanol_brix=cfg.k_ethanol_brix,
         dsg_ethanol=cfg.dsg_ethanol,
     )
-    res = SimResult(start=start, model=model)
+    res = SimResult(start=start, model=model, config=cfg)
     s0 = model.s0
     s = s0 * 0.995
     step = timedelta(minutes=cfg.step_min)

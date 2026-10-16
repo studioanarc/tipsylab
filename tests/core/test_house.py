@@ -68,3 +68,16 @@ def test_forecast_check_skips_missing_snapshots():
     check = forecast_check(snaps, crossing)
     assert set(check) == {12}
     assert check[12]["inside"] is False
+
+
+def test_device_values_need_an_observation_and_are_floored():
+    from core.house import device_values
+
+    assert device_values("bubbles_per_g", {}) == {}
+    values = device_values("bubbles_per_g", {"tipsy-a1": [(250.0, 1.0)]})
+    v = values["tipsy-a1"]
+    assert v.n == 1
+    assert 240.0 < v.mean <= 250.0
+    assert v.sigma >= 0.14 * 250.0  # eine Eichung ist nie genauer als ±15 %
+    spindle = device_values("spindle_offset", {"sensor.spindel": [(0.003, 0.0001)]})["sensor.spindel"]
+    assert spindle.sigma >= 0.00049
