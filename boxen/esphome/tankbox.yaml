@@ -1,9 +1,9 @@
 # TIPSYLAB · Tankbox: Charmat-Tank auf dem Druck halten, den die Flasche beim Öffnen haben soll (PLAN 3.9).
 #
-# Hardware: M5 AtomS3, ADS1115 am Grove-Port (I²C), vorhandener Drucktransmitter im Gasraum,
-# DS18B20 in einer Tauchhülse im Wein, stromlos geschlossenes, direktgesteuertes 12-V-Magnetventil
-# über Logik-MOSFET mit Freilaufdiode. Ein mechanisches Sicherheitsventil unter der Zulassung des
-# Tanks ist Pflicht; diese Regelung ersetzt es nie.
+# Hardware: M5 AtomS3R (oder AtomS3, siehe packages), ADS1115 am Grove-Port (I²C), vorhandener
+# Drucktransmitter im Gasraum, DS18B20 in einer Tauchhülse im Wein, stromlos geschlossenes,
+# direktgesteuertes 12-V-Magnetventil über Logik-MOSFET mit Freilaufdiode. Ein mechanisches
+# Sicherheitsventil unter der Zulassung des Tanks ist Pflicht; diese Regelung ersetzt es nie.
 #
 # Home Assistant schickt nur das CO₂-Ziel (number "CO₂-Ziel", g/L). Den Sollwert für die aktuelle
 # Tanktemperatur rechnet das Gerät selbst und regelt weiter, wenn WLAN oder Home Assistant fehlen.
@@ -37,11 +37,6 @@ esphome:
     name: studioanarc.tipsylab-tank
     version: "0.1.0"
 
-esp32:
-  board: m5stack-atoms3
-  framework:
-    type: esp-idf
-
 logger:
   level: INFO
 
@@ -62,17 +57,20 @@ wifi:
 
 captive_portal:
 
-i2c:
-  sda: GPIO2
-  scl: GPIO1
-  frequency: 400kHz
+packages:
+  # Hardware: AtomS3R ab Mai 2026 (Standard). Frühe AtomS3R mit GC9107-Display:
+  # pakete/board-atoms3r-gc9107.yaml, die alte AtomS3: pakete/board-atoms3.yaml.
+  board: !include pakete/board-atoms3r.yaml
 
-spi:
-  clk_pin: GPIO17
-  mosi_pin: GPIO21
+i2c:
+  - id: grove
+    sda: GPIO2
+    scl: GPIO1
+    frequency: 400kHz
 
 ads1115:
   - address: 0x48
+    i2c_id: grove
 
 one_wire:
   - platform: gpio
@@ -111,16 +109,6 @@ output:
   - platform: gpio
     pin: GPIO5
     id: ventil_ausgang
-  - platform: ledc
-    pin: GPIO16
-    id: display_licht
-
-light:
-  - platform: monochromatic
-    output: display_licht
-    name: Display
-    entity_category: config
-    restore_mode: RESTORE_DEFAULT_ON
 
 color:
   - id: tinte
@@ -144,19 +132,9 @@ font:
     glyphs: " 0123456789,-°ABLORSTU"
     bpp: 4
 
-# Eingebautes Display des AtomS3 (GC9107). Am Gerät nicht geprüft: Ist das Bild verschoben,
-# offset_height auf 0 setzen; sind die Farben vertauscht, invert_colors umschalten.
+# Eingebautes Display; Treiber und Pins kommen aus dem Board-Paket (id: anzeige).
 display:
-  - platform: mipi_spi
-    model: GC9107
-    cs_pin: GPIO15
-    dc_pin: GPIO33
-    reset_pin: GPIO34
-    dimensions:
-      width: 128
-      height: 128
-      offset_height: 32
-    invert_colors: false
+  - id: !extend anzeige
     update_interval: 1s
     lambda: |-
       auto komma = [](char *s) { for (; *s; s++) if (*s == '.') *s = ','; };

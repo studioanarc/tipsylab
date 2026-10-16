@@ -1,0 +1,70 @@
+# TIPSYLAB · Board-Paket: M5Stack AtomS3R, Display ST7735 (Geräte ab Mai 2026, Standard).
+#
+# Die AtomS3R löst die AtomS3 ab (EOL). Gleiche Größe und gleiche Anschlüsse unten und am Grove-Port;
+# anders sind Display-Pins, PSRAM und die Hintergrundbeleuchtung (LED-Treiber LP5562 am internen
+# I²C-Bus statt eines GPIO). Frühe AtomS3R haben einen GC9107: dann board-atoms3r-gc9107.yaml.
+# Die alte AtomS3: board-atoms3.yaml.
+#
+# Stellt bereit: Display mit id "anzeige" (die Box gibt lambda und update_interval dazu), das Licht
+# "Display", den internen I²C-Bus "intern". Den Grove-Bus legt die Box selbst an (id "grove").
+#
+# Am Gerät nicht geprüft: Ist das Bild verschoben oder gespiegelt, rotation, col_start und row_start
+# anpassen; sind Rot und Blau vertauscht, use_bgr: true; sind alle Farben falsch, invert_colors umschalten.
+
+esp32:
+  board: m5stack-atoms3
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+spi:
+  clk_pin: GPIO15
+  mosi_pin: GPIO21
+
+i2c:
+  - id: intern
+    sda: GPIO45
+    scl: GPIO0
+    frequency: 400kHz
+
+i2c_device:
+  - id: led_treiber                  # LP5562, Weißkanal = Hintergrundlicht
+    i2c_id: intern
+    address: 0x30
+
+output:
+  - platform: template
+    id: display_licht
+    type: float
+    write_action:
+      - lambda: |-
+          id(led_treiber).write_byte(0x00, 0x40);  // Chip an
+          delay(1);
+          id(led_treiber).write_byte(0x08, 0x01);  // interner Takt
+          id(led_treiber).write_byte(0x70, 0x00);  // Kanäle direkt über I²C
+          id(led_treiber).write_byte(0x0E, (uint8_t) (state * 255.0f));  // Weiß: Helligkeit
+
+light:
+  - platform: monochromatic
+    output: display_licht
+    name: Display
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+
+# ST7735S mit 128 × 128 Pixeln; Versatz und Drehung wie in M5GFX (Panel_ST7735S, offset 2/1, 180°)
+display:
+  - platform: st7735
+    id: anzeige
+    model: INITR_GREENTAB
+    cs_pin: GPIO14
+    dc_pin: GPIO42
+    reset_pin: GPIO48
+    device_width: 128
+    device_height: 128
+    col_start: 2
+    row_start: 1
+    invert_colors: true
+    rotation: 180

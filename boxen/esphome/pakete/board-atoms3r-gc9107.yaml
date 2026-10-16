@@ -1,0 +1,53 @@
+# TIPSYLAB · Board-Paket: M5Stack AtomS3R, frühe Geräte mit Display GC9107 (bis Mai 2026).
+#
+# Wie board-atoms3r.yaml, nur das Display ist ein anderes. Welches drin ist, zeigt das Log der
+# Gärbox-Firmware beim Start ("board_M5AtomS3R (ST7735)" oder "(GC9107)"), sonst einfach probieren:
+# Bleibt das Bild schwarz oder ist es verrauscht, das andere Paket nehmen.
+
+esp32:
+  board: m5stack-atoms3
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+spi:
+  clk_pin: GPIO15
+  mosi_pin: GPIO21
+
+i2c:
+  - id: intern
+    sda: GPIO45
+    scl: GPIO0
+    frequency: 400kHz
+
+i2c_device:
+  - id: led_treiber                  # LP5562, Weißkanal = Hintergrundlicht
+    i2c_id: intern
+    address: 0x30
+
+output:
+  - platform: template
+    id: display_licht
+    type: float
+    write_action:
+      - lambda: |-
+          id(led_treiber).write_byte(0x00, 0x40);  // Chip an
+          delay(1);
+          id(led_treiber).write_byte(0x08, 0x01);  // interner Takt
+          id(led_treiber).write_byte(0x70, 0x00);  // Kanäle direkt über I²C
+          id(led_treiber).write_byte(0x0E, (uint8_t) (state * 255.0f));  // Weiß: Helligkeit
+
+light:
+  - platform: monochromatic
+    output: display_licht
+    name: Display
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+
+display:
+  - platform: mipi_spi
+    id: anzeige
+    model: M5STACK-ATOMS3R-GC9107
