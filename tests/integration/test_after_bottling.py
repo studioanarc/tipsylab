@@ -179,3 +179,34 @@ async def test_closing_archives_and_teaches_the_house(hass: HomeAssistant, hass_
     await _call(hass, entry, "remove_entry", kind="closed", time=closed["time"])
     assert house.archive == []
     assert house.values["saturation"].n == 0
+
+
+async def test_closing_teaches_the_devices(hass: HomeAssistant) -> None:
+    """Blasen je g CO2 der Gärbox und Spindel-Versatz landen im Archiv; der nächste Ansatz nutzt sie."""
+    start = dt_util.utcnow() - timedelta(days=10)
+    entry = _entry("DATA 2025", start=start.isoformat(), bubble_device="tipsy-abc123",
+                   gravity_entity="sensor.spindel_gravity")
+    coord = await _setup(hass, entry)
+    model = coord.model()
+    # Blasen und Spindel wie von den Geräten; die Spindel zeigt 0,002 zu viel
+    for h in range(0, 24 * 9, 2):
+        t = start + timedelta(hours=h)
+        sugar = max(4.0, model.s0 - 0.95 * h)
+        coord._record("bubbles", t, (model.s0 - sugar) * 750 * 0.47 * 240)
+        coord._record("gravity", t, model.density(sugar) + 0.002)
+    for day in (6, 8):
+        t = start + timedelta(days=day)
+        sugar = max(4.0, model.s0 - 0.95 * day * 24)
+        await _call(hass, entry, "add_measurement", kind="brix", value=round(model.refractometer_reading(sugar), 2),
+                    time=t)
+    await _bottle_at(hass, entry, 6.0)
+    await _call(hass, entry, "add_event", kind="closed")
+    house = get_house(hass)
+    devices = house.archive[0]["observed_devices"]
+    assert devices["bubbles_per_g"]["tipsy-abc123"][0] == pytest.approx(240, rel=0.2)
+    assert devices["spindle_offset"]["sensor.spindel_gravity"][0] == pytest.approx(0.002, abs=0.001)
+
+    later = _entry("DATA 2026", bubble_device="tipsy-abc123", gravity_entity="sensor.spindel_gravity")
+    settings = (await _setup(hass, later)).settings()
+    assert settings.bubbles_per_g == pytest.approx(house.devices["bubbles_per_g"]["tipsy-abc123"].mean)
+    assert settings.spindle_offset_prior == pytest.approx(0.002, abs=0.001)

@@ -67,7 +67,7 @@ from .core.display import display_payload, format_dub
 from .core.feed import feed_entry
 from .core.fermentation import SIGMA, Anchor, Estimate, Series, Settings, estimate
 from .core.house import crossing_time, forecast_check
-from .core.physics import FILL_MID
+from .core.physics import FILL_MID, YIELD_CO2_SUGAR
 from .core.units import brix_to_sg, to_sg
 from .house import get_house
 
@@ -244,6 +244,12 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 "saturation": house.values["saturation"].mean,
                 "g_sugar_per_abv_sigma": house.values["g_sugar_per_abv"].sigma,
             }
+            if bubbles := house.device("bubbles_per_g", self._conf(CONF_BUBBLE_DEVICE)):
+                learned["bubbles_per_g"] = bubbles.mean
+                learned["bubbles_per_g_rel"] = bubbles.sigma / bubbles.mean
+            if spindle := house.device("spindle_offset", self._conf(CONF_GRAVITY_ENTITY)):
+                learned["spindle_offset_prior"] = spindle.mean
+                learned["spindle_offset_prior_sigma"] = spindle.sigma
         return Settings(
             **learned,
             mode=self.mode,
@@ -450,6 +456,14 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
         observed: dict[str, list[float] | None] = {"g_sugar_per_abv": self._observed_sugar_per_abv(anchors)}
         if bottle is not None and (sat := observed_saturation(bottle)) is not None:
             observed["saturation"] = [sat[0], sat[1]]
+        devices: dict[str, dict[str, list[float]]] = {}
+        device, volume = self._conf(CONF_BUBBLE_DEVICE), self.volume_l
+        if est is not None and device and volume and est.bubble_g_l_per_bubble:
+            per_g = 1.0 / (est.bubble_g_l_per_bubble * YIELD_CO2_SUGAR * float(volume))
+            devices["bubbles_per_g"] = {device: [per_g, per_g * (est.bubble_rel_sigma or 0.3)]}
+        spindle = self._conf(CONF_GRAVITY_ENTITY)
+        if est is not None and spindle and est.spindle_offset is not None and est.spindle_offset_sigma is not None:
+            devices["spindle_offset"] = {spindle: [est.spindle_offset, est.spindle_offset_sigma]}
         series = est.series if est else []
         step = max(1, len(series) // 120)
         record: dict[str, Any] = {
@@ -472,6 +486,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             },
             "series": [[_iso(t), round(s, 2)] for t, s, _ in series[::step]],
             "observed": observed,
+            "observed_devices": devices,
         }
         await house.async_put(record)
         self._refresh_others()
