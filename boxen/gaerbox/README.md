@@ -1,22 +1,27 @@
-# Gärbox – TIPSYlab firmware (M5 AtomS3)
+# Gärbox – TIPSYlab firmware (M5 AtomS3R / AtomS3)
 
 Firmware for the **Gärbox** of [TIPSYLAB](../../README.md) (overview of all boxes:
-[boxen/README.md](../README.md)): an [M5Stack AtomS3](https://docs.m5stack.com/en/core/AtomS3) that
+[boxen/README.md](../README.md)): an [M5Stack AtomS3R](https://docs.m5stack.com/en/core/AtomS3R) (or the older AtomS3) that
 sits on a fermenter airlock and counts "blops" with its built-in gyroscope, reads up to two
 DS18B20 probes, optionally weighs the vessel with an HX711 load-cell amplifier, and publishes
 everything over MQTT. Home Assistant picks the device up automatically (MQTT discovery); the
 TIPSYLAB integration reads the raw messages and sends the time until bottling (DUB) back to the
 display.
 
-Firmware **2.2.0** – see [Changelog](#changelog).
+Firmware **2.2.1** – see [Changelog](#changelog).
 
 ## Hardware
 
 | Part | Notes |
 |---|---|
-| M5 AtomS3 | ESP32-S3, MPU6886 IMU, 128×128 display, one button |
+| M5 AtomS3R or AtomS3 | ESP32-S3, IMU (AtomS3R: BMI270, AtomS3: MPU6886), 128×128 display, one button |
 | 1–2× DS18B20 | OneWire on **GPIO 2** (Grove port), 4.7 kΩ pull-up |
 | optional: HX711 + load cell | DOUT on **GPIO 5**, SCK on **GPIO 6** (header pins), VCC 3.3 V; see [Scale](#scale-optional) |
+
+The AtomS3 is end-of-life at M5Stack; buy the AtomS3R. Its display changed in May 2026 (GC9107 →
+ST7735); M5GFX ≥ 0.2.32 detects both. Not yet run on an AtomS3R: the impulse detector sets its
+trigger from the measured noise floor, so the BMI270 should work; check the noise floor once in
+the status view.
 
 ## Quick start
 
@@ -239,6 +244,11 @@ data/                 web UI, flashed to SPIFFS with `pio run -t uploadfs`
 ```
 
 ## Changelog
+
+### 2.2.1 (2026-10-16)
+
+- AtomS3R with the ST7735 display (units from May 2026): M5GFX pinned to ≥ 0.2.32, which detects
+  both AtomS3R displays and its LP5562 backlight. The AtomS3 is end-of-life at M5Stack.
 
 ### 2.2.0 (2026-10-12)
 

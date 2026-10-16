@@ -38,7 +38,7 @@
 #include <math.h>
 #include <algorithm>
 
-#define FW_VERSION "2.2.0"
+#define FW_VERSION "2.2.1"
 
 // ===== Compile-time defaults (set them in secrets.ini, see secrets.ini.example) =====
 #ifndef TIPSY_WIFI_SSID
