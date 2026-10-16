@@ -1437,12 +1437,17 @@ class TipsylabPanel extends HTMLElement {
     const learned = (x) => (x && x.n ? `<small>aus ${x.n} ${x.n === 1 ? "Ansatz" : "Ansätzen"}</small>` : "<small>Startwert</small>");
     if (v.saturation) rows.push(["CO₂ beim Abfüllen", `${Math.round(v.saturation.mean * 100)} ± ${Math.round(v.saturation.sigma * 100)} % ${learned(v.saturation)}`]);
     if (v.g_sugar_per_abv) rows.push(["Zucker je % vol", `${nf(v.g_sugar_per_abv.mean)} ± ${nf(v.g_sugar_per_abv.sigma)} g/L ${learned(v.g_sugar_per_abv)}`]);
+    const dev = h.devices || {};
+    for (const [id, x] of Object.entries(dev.bubbles_per_g || {}))
+      rows.push([`Blasen je g CO₂ <small>${esc(id)}</small>`, `${nf(x.mean, 0)} ± ${nf(x.sigma, 0)} ${learned(x)}`]);
+    for (const [id, x] of Object.entries(dev.spindle_offset || {}))
+      rows.push([`Spindel-Versatz <small>${esc(id.replace(/^sensor\./, ""))}</small>`, `${x.mean >= 0 ? "+" : "−"}${nf(Math.abs(x.mean) * 1000)} ± ${nf(x.sigma * 1000)} °Oe ${learned(x)}`]);
     this._html("a-learned", rows.map(([dt, dd]) => `<div><dt>${dt}</dt><dd>${dd}</dd></div>`).join(""));
     const any = Object.values(v).some((x) => x.n);
     this._set(
       "a-learned-note",
       any
-        ? "Gelöstes CO₂ beim Abfüllen in % der Sättigung, aus durchgegorenen Messflaschen; Zucker je % vol aus Laborwerten. Neue Ansätze rechnen damit."
+        ? "Gelöstes CO₂ beim Abfüllen in % der Sättigung, aus durchgegorenen Messflaschen; Zucker je % vol aus Laborwerten; Blasen und Spindel je Gerät, solange ein Ansatz noch nicht selbst geeicht ist. Neue Ansätze rechnen damit."
         : "Noch Startwerte aus der Literatur. Durchgegorene Messflaschen und Laborwerte von abgeschlossenen Ansätzen eichen sie.",
     );
     const list = (h.archive || []).map((r) => {
