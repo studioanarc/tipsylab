@@ -32,8 +32,8 @@ TIPSYLAB besteht aus zwei Teilen:
 | Teil | Was es ist | Software | Ordner |
 |---|---|---|---|
 | **Integration** | rechnet und speichert; Panel | Python, Home-Assistant-Integration | [`custom_components/tipsylab`](custom_components/tipsylab) |
-| **Gärbox** | AtomS3 am Gärröhrchen: Blasen, Weintemperatur, optional Gewicht | eigene Firmware (PlatformIO) | [`boxen/gaerbox`](boxen/gaerbox) |
-| **Waagebox** | AtomS3 mit Wägezelle, für Gefäße ohne Gärbox; auch als Paket für jeden ESPHome-ESP32 | ESPHome | [`boxen/esphome`](boxen/esphome) |
+| **Gärbox** | AtomS3R am Gärröhrchen: Blasen, Weintemperatur, optional Gewicht | eigene Firmware (PlatformIO) | [`boxen/gaerbox`](boxen/gaerbox) |
+| **Waagebox** | AtomS3R mit Wägezelle, für Gefäße ohne Gärbox; auch als Paket für jeden ESPHome-ESP32 | ESPHome | [`boxen/esphome`](boxen/esphome) |
 | **Tankbox** | Charmat: Druck halten, Ventil regeln | ESPHome | [`boxen/esphome`](boxen/esphome) |
 | **Flaschenbox** | Druck in der Messflasche nach dem Abfüllen | ESPHome | [`boxen/esphome`](boxen/esphome) |
 | **Kellerluftbox** | CO₂ und Klima im Keller | ESPHome | [`boxen/esphome`](boxen/esphome) |

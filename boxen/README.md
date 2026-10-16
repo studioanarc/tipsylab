@@ -47,7 +47,8 @@ zeigt auf dem Display die Blasen pro Minute (BPM), die Zeit bis zum Abfüllen (D
 Temperatur. Mit Wägezelle wiegt sie das Gefäß mit.
 
 **Hardware**
-- M5Stack AtomS3 (mit Display; die AtomS3R geht auch, die AtomS3 Lite nicht)
+- M5Stack AtomS3R (Nachfolger der AtomS3, die bei M5Stack ausläuft; eine vorhandene AtomS3 geht
+  auch, die AtomS3 Lite nicht: ihr fehlen Display und Bewegungssensor)
 - DS18B20 wasserdicht, in einer Tauchhülse im Wein; 4,7 kΩ zwischen Daten und 3,3 V
 - optional: HX711-Board und Wägezelle: unter dem Ballon eine Single-Point-Zelle unter einer
   Platte; unter dem Tank eine Druck-Wägezelle oder ein Wägemodul für etwa 500 kg unter **einem**
@@ -74,7 +75,7 @@ Eintrag ist nur nötig, wenn sie von einem anderen Sensor kommen sollen.
 Gärröhrchen stört. Für die Gärung gilt dasselbe wie bei der Gärbox: Gewichtsverlust ist
 entwichenes CO₂.
 
-**Hardware:** M5Stack AtomS3, HX711-Board, Wägezelle wie bei der Gärbox, USB-C-Netzteil.
+**Hardware:** M5Stack AtomS3R (oder AtomS3), HX711-Board, Wägezelle wie bei der Gärbox, USB-C-Netzteil.
 
 **Anschluss:** HX711 DT an G5, SCK an G6, VCC an 3V3. Optional ein DS18B20 an G2 an der Wägezelle,
 um Temperaturdrift zu sehen (in der YAML auskommentiert).
@@ -111,7 +112,7 @@ Tanktemperatur rechnet die Box selbst und regelt ohne WLAN weiter. Beim Abkühle
 Sollwert langsam nach, damit kein CO₂ abgelassen wird, das sich gerade im Wein löst.
 
 **Hardware**
-- M5Stack AtomS3, ADS1115-Modul (auf 3,3 V)
+- M5Stack AtomS3R (oder AtomS3), ADS1115-Modul (auf 3,3 V)
 - der vorhandene Drucktransmitter, 0,5–4,5 V, über einen Spannungsteiler 10 kΩ/20 kΩ an A0
 - DS18B20 in einer Tauchhülse im Wein
 - Magnetventil 12 V, **stromlos geschlossen** und **direktgesteuert**, Edelstahl, kleine Düse;
@@ -135,7 +136,7 @@ vollständiger Vergärung und meldet, wenn er höher steigt („auf 0–2 °C k�
 durchgegoren, eicht sie beim Abschließen des Ansatzes das Druckmodell für die nächsten Ansätze.
 
 **Hardware**
-- M5Stack AtomS3, ADS1115-Modul (auf 3,3 V)
+- M5Stack AtomS3R (oder AtomS3), ADS1115-Modul (auf 3,3 V)
 - Drucktransmitter 0–10 bar, 0,5–4,5 V, Edelstahl, G1/4, über einen Spannungsteiler 10 kΩ/20 kΩ an A0
 - Kronkorken-Adapter mit Durchführung (wie bei Aphrometern) für denselben Kronkorken wie die anderen
   Flaschen
@@ -158,7 +159,8 @@ Flaschenbox geht es auch: das Aphrometer ablesen und unter „Messung → Flasch
 ab 5.000 ppm (Arbeitsplatzgrenzwert) gibt es Alarm. Dazu Temperatur, Feuchte und Luftdruck.
 Tief montieren, etwa 30 cm über dem Boden.
 
-**Hardware:** M5Stack AtomS3, Grove-Hub, Sensirion SCD41 (CO₂), M5 ENV IV (SHT40 und BMP280).
+**Hardware:** M5Stack AtomS3 Lite (die Box braucht kein Display; AtomS3R oder AtomS3 gehen auch),
+Grove-Hub, Sensirion SCD41 (CO₂), M5 ENV IV (SHT40 und BMP280).
 
 **Anschluss:** alles über Grove (I²C, G2 SDA, G1 SCL).
 
@@ -196,9 +198,36 @@ cp secrets.yaml.example secrets.yaml     # WLAN, Einrichtungs-Passwort, API-Schl
 esphome run tankbox.yaml                 # erstes Mal per USB, danach über WLAN
 ```
 
-Im ESPHome-Dashboard von Home Assistant: die YAML-Datei (und für die Waagebox den Ordner
-`pakete/`) in den ESPHome-Ordner kopieren und dort die vorhandene `secrets.yaml` um
-`ap_password` und `api_encryption_key` ergänzen.
+Im ESPHome-Dashboard von Home Assistant: die YAML-Datei und den Ordner `pakete/` in den
+ESPHome-Ordner kopieren und dort die vorhandene `secrets.yaml` um `ap_password` und
+`api_encryption_key` ergänzen.
 
-Die Displays von Tank- und Waagebox sind am Gerät noch nicht geprüft. Ist das Bild verschoben,
-in der YAML `offset_height` auf 0 setzen; sind die Farben vertauscht, `invert_colors` umschalten.
+**Welches Board:** Tank-, Waage- und Flaschenbox holen Display, Licht und Pins aus einem
+Board-Paket, oben in der YAML unter `packages: board:`.
+
+| Gerät | Paket |
+|---|---|
+| AtomS3R ab Mai 2026, Display ST7735 (Standard) | `pakete/board-atoms3r.yaml` |
+| frühe AtomS3R, Display GC9107 | `pakete/board-atoms3r-gc9107.yaml` |
+| AtomS3 (Vorgänger) | `pakete/board-atoms3.yaml` |
+
+Welches Display eine AtomS3R hat, steht im Startlog der Gärbox-Firmware; sonst probieren: Bleibt
+das Bild schwarz oder verrauscht, das andere Paket nehmen. Die Kellerluftbox braucht kein Paket.
+
+Die Displays sind am Gerät noch nicht geprüft. Ist das Bild verschoben oder gedreht, im
+Board-Paket Versatz und Drehung anpassen; sind die Farben vertauscht, `invert_colors` umschalten
+(bei der ST7735 vertauschte Rot/Blau: `use_bgr: true`).
+
+## Im Keller: Feuchte, Spritzwasser, Gehäuse
+
+- **Boxen am Tank und in Bodennähe** (Tank-, Waage-, Flaschenbox): in eine IP65-Abzweigdose aus
+  Polycarbonat mit durchsichtigem Deckel, Kabel durch Kabelverschraubungen, dazu ein
+  Druckausgleichselement (Membran). Ohne den Ausgleich pumpt jeder Temperaturwechsel feuchte Luft
+  hinein, die drinnen kondensiert.
+- **Gärbox:** leicht lassen. Sie zählt die Blasen über ihren Bewegungssensor; ein schweres oder
+  steifes Gehäuse dämpft genau dieses Signal. Kein Metall: Es schirmt das WLAN ab. Gegen Spritzer
+  reicht eine dünne Hülle.
+- **Kellerluftbox:** Die Sensoren brauchen Luft, also nicht dicht einbauen; tief, aber außerhalb
+  des Spritzbereichs der Bodenreinigung montieren.
+- **Edelstahl gehört an den Wein, nicht um die Elektronik:** Fühler in Edelstahl-Tauchhülsen.
+- **Netzteile** außerhalb des Nassbereichs, Steckdosen hinter einem FI-Schutzschalter.
