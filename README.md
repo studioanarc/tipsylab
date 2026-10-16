@@ -60,7 +60,7 @@ Hintergrund, Physik und Entscheidungen: [docs/PLAN-Abfuellzeitpunkt.md](docs/PLA
   umgerechnet; steigt sie über den erwarteten Druck, gibt es Alarm mit Handlung („auf 0–2 °C
   kühlen“). „Ansatz abschließen“ legt ihn ins Archiv: mit Nachkalkulation der Prognose und den
   Hauswerten, die neue Ansätze nutzen (CO₂ beim Abfüllen aus der Messflasche, Zucker je % vol aus
-  Laborwerten).
+  Laborwerten, Blasen je g CO₂ je Gärbox und Versatz je Spindel).
 - **Charmat:** CO₂-Ziel und Tank-Sollwert aus dem Flaschenziel; die Tankbox regelt danach.
 - **Gewicht:** Gewichtsverlust ist entwichenes CO₂. Mit dem Volumen ergibt das den vergorenen
   Zucker direkt; liegen Messungen im Verlauf, wird an ihnen geeicht. Gelöstes CO₂ und Proben
@@ -135,8 +135,8 @@ Flaschen- und Kellerluftbox; Heizbox-Skript; Blueprints.
 
 Dazu der öffentliche Feed für die DataWein-Seite (Empfänger und Seite in `website/datawein`).
 
-Noch offen aus dem Plan sind nur die Extras aus Phase 6 (Kühlung per Home Assistant, Kolorimeter,
-Füllstand) und das Lernen von Startwerten für Spindel-Versatz und Blasen je Gerät.
+Noch offen aus dem Plan sind nur die Extras aus Phase 6: Kühlung per Home Assistant, Kolorimeter,
+Füllstand.
 
 Geprüft ist, was ohne Hardware geht: Tests gegen einen Simulator mit bekannter Wahrheit, Builds,
 Konfigurationsprüfung, das Panel im Browser mit echten Daten der Integration, das Shelly-Skript in
