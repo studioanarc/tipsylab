@@ -759,7 +759,9 @@ Fertig, wenn: im Simulator das P10–P90-Fenster aus Prognosen, die 48 h vorher 
 4. **Spindel:** Was steckt in der Nautilis „Pill“ (D1 mini oder ESP32-C3), und wohin sendet sie heute (MQTT nach HA, Brewfather …)?
 5. **Home Assistant:** Auf welchem Server, und welche Installationsart (HA OS, Container oder Core)? Die Integration läuft in allen; Add-ons gäbe es nur mit HA OS.
 6. **Ziel pro Wein:** frisante (bis 2,5 bar bei 20 °C) oder espumante (ab 3 bar)? Das legt das Ziel und das Etikett fest.
-7. **Degorgierst du?** Dann zählt auch die Phase in der Flasche, und die Messflasche sagt, wann.
+7. **Degorgierst du?** Nein (19.10.): Die Hefe bleibt in der Flasche. Die Messflasche dient damit der
+   Frühwarnung (Alarm „kühlen“, solange die Flaschen noch im Haus sind), dem Fortschritt der
+   Flaschengärung und der Eichung der nächsten Ansätze.
 8. **Sprache der App:** Deutsch, Englisch wie tipsy.pt, Portugiesisch?
 9. **WLAN im Keller:** Reicht es bis an die Gefäße, oder braucht es ein Gateway per ESP-NOW? Gilt das auch für den Keller in Frankreich?
 10. **Wärmepumpe:** Kann sie auch kühlen (Raum oder Wasser), und hat sie eine Schnittstelle zu Home Assistant (z. B. Modbus)? Dann setzt Home Assistant den Temperaturplan mit Heizen und Kühlen um.
