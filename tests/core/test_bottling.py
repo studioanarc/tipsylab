@@ -5,8 +5,6 @@ from datetime import datetime, timedelta
 import pytest
 
 from core.bottling import (
-    ACTION_DANGER,
-    ACTION_HIGH,
     Bottling,
     bottle_status,
     co2_in_bottle,
@@ -78,7 +76,6 @@ def test_more_sugar_than_estimated_raises_the_alarm():
     status = bottle_status(_bottling(), readings, START + timedelta(days=36))
     assert status.state == "high"
     assert status.alarm
-    assert status.action == ACTION_HIGH
     # früh genug: schon nach einer Woche über dem erwarteten Enddruck
     early = bottle_status(_bottling(), readings[:3], START + timedelta(days=15))
     assert early.alarm
@@ -87,7 +84,7 @@ def test_more_sugar_than_estimated_raises_the_alarm():
 def test_near_the_bottle_limit_is_danger():
     status = bottle_status(_bottling(), simulate_bottle(TARGET_SUGAR + 12.0, start=START), START + timedelta(days=36))
     assert status.state == "danger"
-    assert status.action == ACTION_DANGER
+    assert status.alarm
 
 
 def test_missing_temperature_counts_as_cold():

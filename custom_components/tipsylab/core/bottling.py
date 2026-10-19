@@ -39,10 +39,6 @@ READING_SIGMA_BAR = 0.1  # Ablesefehler eines Aphrometers
 # Flaschengärung den nächsten Ansatz mit mehr Zucker abfüllen lassen).
 PLAUSIBLE_SATURATION = (0.4, 1.4)
 
-ACTION_HIGH = "Flaschen auf 0–2 °C kühlen und die Messflasche täglich ablesen."
-ACTION_DANGER = "Sofort auf 0–2 °C kühlen. Flaschen nur mit Schutzbrille und Handschuhen anfassen."
-
-
 def fill_conditions(
     saturation: float = FILL_MID.saturation, t_bottling_c: float = FILL_MID.t_bottling_c
 ) -> tuple[FillConditions, FillConditions, FillConditions]:
@@ -178,9 +174,8 @@ class BottleStatus:
     readings: list[BottleReading] = field(default_factory=list)
     progress: float | None = None  # Anteil der erwarteten Flaschengärung laut jüngster Messung
     done: bool = False  # Flaschengärung durch: Druck seit Tagen gleich
-    state: str = "wait"  # wait | ok | high | danger
+    state: str = "wait"  # wait | ok | high | danger; die Handlung dazu steht in texts.py der Integration
     alarm: bool = False
-    action: str = ""
 
     @property
     def latest(self) -> BottleReading | None:
@@ -190,7 +185,7 @@ class BottleStatus:
 def bottle_status(
     bottling: Bottling, readings: list[tuple[datetime, float, float | None]], now: datetime
 ) -> BottleStatus:
-    """Messflasche auswerten: umrechnen, Fortschritt, Alarm mit Handlung."""
+    """Messflasche auswerten: umrechnen, Fortschritt, Alarm mit Stufe (high: kühlen, danger: sofort kühlen)."""
     b = bottling
     sig = (b.expected(20.0, b.sugar + b.sigma) - b.expected(20.0, max(0.0, b.sugar - b.sigma))) / 2
     status = BottleStatus(
@@ -218,9 +213,9 @@ def bottle_status(
         last.t - b.time >= DONE_AFTER and bool(earlier) and abs(last.p20 - earlier[-1].p20) <= DONE_STABLE_BAR
     )
     if last.p20 >= DANGER_FRACTION * status.limit:
-        status.state, status.alarm, status.action = "danger", True, ACTION_DANGER
+        status.state, status.alarm = "danger", True
     elif last.p20 > status.expected_20 + HIGH_MARGIN_BAR:
-        status.state, status.alarm, status.action = "high", True, ACTION_HIGH
+        status.state, status.alarm = "high", True
     else:
         status.state = "ok"
     return status

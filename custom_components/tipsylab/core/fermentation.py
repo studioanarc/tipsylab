@@ -301,7 +301,7 @@ def _weight_points(
     max_rate = PEAK_SUGAR_RATE * YIELD_CO2_SUGAR * (volume or 1000.0) / 1000.0 / 1440.0  # kg/min
     cleaned, est.weight_steps = remove_steps(weight, max_rate, noise)
     if est.weight_steps:
-        est.notes.append(f"Waage: {est.weight_steps} Sprung/Sprünge herausgerechnet (Probe, Abstich?)")
+        est.notes.append("weight_steps")
     wser = Series(cleaned)
     w_start = wser.v[0] if wser.t[0] - start <= timedelta(hours=12) else None
 
@@ -333,11 +333,11 @@ def _weight_points(
         k_cal = sum(ds * dw / var for ds, dw, var in pairs) / sum(dw * dw / var for _, dw, var in pairs)
         if k is None or 0.25 * k <= k_cal <= 4.0 * k:
             if k is not None and k_cal > 2.2 * k:
-                est.notes.append("Waage zeigt etwa ein Drittel: mit Testgewicht in der Deckelmitte eichen")
+                est.notes.append("weight_third")
             k, rel = k_cal, WEIGHT_REL_SIGMA_CAL
             est.weight_calibrated = True
         else:
-            est.notes.append("Waage passt nicht zu den Messungen: Eichung prüfen")
+            est.notes.append("weight_mismatch")
     if k is None:
         return [], None
     est.weight_g_l_per_kg = k
@@ -403,6 +403,8 @@ class Estimate:
     weight_steps: int = 0
     fit_k: float | None = None
     fit_rel: float | None = None
+    # Hinweise als Codes, das Panel übersetzt: weight_steps, weight_third, weight_mismatch, spindle_house,
+    # bubbles_saturated, bubbles_house, linear_trend, no_recent, dry_unconfirmed, stuck
     notes: list[str] = field(default_factory=list)
     series: list[tuple[datetime, float, float]] = field(default_factory=list)  # (t, S, σ) fürs Diagramm
     forecast: list[tuple[datetime, float, float, float]] = field(default_factory=list)  # (t, S, oben, unten)
@@ -499,7 +501,7 @@ def estimate(
     house_offset = offset is None and settings.spindle_offset_prior is not None
     if house_offset:  # noch kein eigener Abgleich: typischer Versatz dieser Spindel aus dem Archiv
         offset, offset_t = settings.spindle_offset_prior, start
-        est.notes.append("Spindel nach ihrem Hauswert, noch ohne eigenen Abgleich")
+        est.notes.append("spindle_house")
     grav_points: list[tuple[datetime, float, float]] = []
     if grav:
         hour = timedelta(hours=1)
@@ -529,7 +531,7 @@ def estimate(
         n1, n2 = bub.interpolate(a1.t), bub.interpolate(a2.t)
         clean = not any(a1.t < t_s <= a2.t for t_s in sat)
         if not clean:
-            est.notes.append("Blasenzähler war gesättigt: Blasen zählen erst nach der nächsten Messung wieder")
+            est.notes.append("bubbles_saturated")
         if clean and n1 is not None and n2 is not None and n2 - n1 >= 100 and a1.sugar - a2.sugar >= 1.0:
             k_b = (a1.sugar - a2.sugar) / (n2 - n1)
             est.bubble_g_l_per_bubble = k_b
@@ -542,7 +544,7 @@ def estimate(
     if bub and not bub_points and est.bubble_g_l_per_bubble is None and settings.bubbles_per_g and settings.volume_l:
         bub_points = _house_bubble_points(anc[-1], bub, sat, temp_s, settings, now)
         if bub_points:
-            est.notes.append("Blasen nach dem Hauswert dieser Gärbox, noch ohne eigene Eichung")
+            est.notes.append("bubbles_house")
     points += bub_points[:: max(1, len(bub_points) // 200)]
 
     # --- Waage: Gewichtsverlust ist entwichenes CO2 --------------------------------------------
@@ -559,7 +561,7 @@ def estimate(
         if tb - ta >= 0.25 and sa > sb > 0:
             k = (sa - sb) / (tb - ta) / max(sb, 1.0)
             fit = DecayFit(k=k, rel_err=0.5, n=len(recent))
-            est.notes.append("Prognose aus dem linearen Trend, noch keine Kurvenanpassung")
+            est.notes.append("linear_trend")
     est.fit_k = fit.k if fit else None
     est.fit_rel = fit.rel_err if fit else None
 
@@ -579,7 +581,7 @@ def estimate(
         cands.append((last.sugar, last.sigma))
     if not cands:
         est.status = "waiting"
-        est.notes.append("Noch keine aktuellen Werte")
+        est.notes.append("no_recent")
         return est
     wsum = sum(1 / sig**2 for _, sig in cands)
     s_now = max(0.0, sum(s / sig**2 for s, sig in cands) / wsum)
@@ -636,7 +638,7 @@ def estimate(
     if still and s_now <= settings.dry_sugar_g_l + 0.5:
         est.status = "dry"
         if now - last.t > timedelta(hours=24):
-            est.notes.append("Trocken laut Schätzung; mit einer Messung bestätigen")
+            est.notes.append("dry_unconfirmed")
     elif est.display_state == "late":
         est.status = "past"
     elif est.display_state == "now":
@@ -662,7 +664,7 @@ def estimate(
         if not cooled and (collapsed or stalled):
             est.status = "stuck"
             est.display_state = "none"
-            est.notes.append("Zucker fällt kaum, ohne dass es kühler wurde")
+            est.notes.append("stuck")
 
     near = est.best is not None and est.best - now <= timedelta(hours=48)
     if near and (sigma > 1.5 or now - last.t > timedelta(hours=24)):

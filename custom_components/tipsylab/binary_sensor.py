@@ -1,4 +1,5 @@
-"""Binäre Sensoren: im Fenster, Messung empfohlen, Flaschengrenze, Sicherheitsabstand, Messflasche."""
+"""Binäre Sensoren: im Fenster, Messung empfohlen, Flaschengrenze, Sicherheitsabstand, Messflasche,
+Quelle stumm, Akku schwach. Handlungen in der Sprache des Servers (texts.py)."""
 
 from __future__ import annotations
 
@@ -15,8 +16,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import TipsylabConfigEntry
+from .const import BATTERY_LOW_PCT, MODES, SILENT_AFTER_H
 from .coordinator import BatchResult
 from .entity import TipsylabEntity
+from .texts import say
+
+ALL_MODES = tuple(MODES)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -64,8 +69,40 @@ BINARY_SENSORS: tuple[TipsylabBinaryDescription, ...] = (
         translation_key="flaschendruck_alarm",
         device_class=BinarySensorDeviceClass.PROBLEM,
         value_fn=lambda r: bool(r.bottle and r.bottle.alarm),
-        attrs_fn=lambda r: {"handlung": r.bottle.action if r.bottle else "", "stufe": r.bottle.state if r.bottle else None},
+        attrs_fn=lambda r: {
+            "handlung": say(f"bottle_{r.bottle.state}", r.lang) if r.bottle and r.bottle.alarm else "",
+            "stufe": r.bottle.state if r.bottle else None,
+        },
         modes=("petnat",),
+    ),
+    TipsylabBinaryDescription(
+        key="quelle_stumm",
+        translation_key="quelle_stumm",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        value_fn=lambda r: bool(r.silent),
+        attrs_fn=lambda r: {
+            "quellen": r.silent,
+            "handlung": say(
+                "silent", r.lang, hours=SILENT_AFTER_H, sources=", ".join(say(f"source_{c}", r.lang) for c in r.silent)
+            )
+            if r.silent
+            else "",
+        },
+        modes=ALL_MODES,
+    ),
+    TipsylabBinaryDescription(
+        key="akku_schwach",
+        translation_key="akku_schwach",
+        device_class=BinarySensorDeviceClass.BATTERY,
+        value_fn=lambda r: r.battery is not None and r.battery[1] <= BATTERY_LOW_PCT,
+        attrs_fn=lambda r: {
+            "geraet": r.battery[0] if r.battery else None,
+            "akku": r.battery[1] if r.battery else None,
+            "handlung": say("battery", r.lang, device=r.battery[0], pct=round(r.battery[1]))
+            if r.battery and r.battery[1] <= BATTERY_LOW_PCT
+            else "",
+        },
+        modes=ALL_MODES,
     ),
 )
 

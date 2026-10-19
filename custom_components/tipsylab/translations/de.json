@@ -233,7 +233,27 @@
       },
       "flaschendruck_alarm": {
         "name": "Messflasche über dem erwarteten Druck"
+      },
+      "quelle_stumm": {
+        "name": "Quelle stumm"
+      },
+      "akku_schwach": {
+        "name": "Akku schwach"
       }
+    }
+  },
+  "exceptions": {
+    "unknown_batch": {
+      "message": "Kein TIPSYLAB-Ansatz mit der ID {entry_id}."
+    },
+    "no_entry": {
+      "message": "Kein Eintrag {kind} um {time}."
+    },
+    "bottling_needs_sugar": {
+      "message": "Zum Abfüllen braucht es einen aktuellen Restzucker: erst messen, dann abfüllen."
+    },
+    "pair_needs_both": {
+      "message": "Für Refraktometer + Dichte braucht es beide Werte."
     }
   },
   "services": {

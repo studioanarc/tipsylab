@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "tipsylab"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 # Konfiguration eines Ansatzes (entry.data)
 CONF_NAME = "name"
@@ -89,6 +89,8 @@ READING_INTERVAL_S = 300  # Sensorwerte werden auf 5 min verdichtet
 READING_RETENTION_DAYS = 90
 FORECAST_SNAPSHOT_MINUTES = 60  # Prognose-Stände für die Nachkalkulation, höchstens stündlich
 FORECAST_SNAPSHOT_MAX = 24 * 45
+SILENT_AFTER_H = 3  # so lange darf eine Quelle schweigen, bevor „Quelle stumm“ angeht
+BATTERY_LOW_PCT = 20  # ab hier „Akku schwach“ (Spindel, Funk-Thermometer)
 
 PANEL_URL = "tipsylab"
 STATIC_URL = "/tipsylab_static"

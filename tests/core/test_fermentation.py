@@ -193,7 +193,7 @@ def test_one_leg_of_three_is_calibrated_by_anchors():
     k_theo = 1000 / (0.47 * 700)
     assert est.weight_calibrated
     assert est.weight_g_l_per_kg == pytest.approx(3 * k_theo, rel=0.2)
-    assert any("Drittel" in n for n in est.notes)
+    assert "weight_third" in est.notes
     assert est.sugar == pytest.approx(sim.sugar_at(sim.start + timedelta(days=9)), abs=3.0)
 
 
@@ -232,7 +232,7 @@ def test_saturated_counter_is_not_used_for_calibration():
     assert estimate(*args).bubble_g_l_per_bubble is not None  # ohne die Meldung würde geeicht
     flagged = estimate(*args, saturated=[t for t in sim.saturated if t <= now])
     assert flagged.bubble_g_l_per_bubble is None
-    assert any("gesättigt" in n for n in flagged.notes)
+    assert "bubbles_saturated" in flagged.notes
 
 
 def test_bubbles_stop_counting_at_saturation_after_the_anchor():
@@ -259,7 +259,7 @@ def test_learned_bubbles_estimate_before_the_first_measurement(day):
     truth = sim.sugar_at(now)
     assert est.sugar is not None
     assert abs(est.sugar - truth) <= max(6.0, 2 * est.sigma)
-    assert any("Hauswert" in n for n in est.notes)
+    assert "bubbles_house" in est.notes
     without = estimate(sim.model, Settings(temp_plan=PLAN, volume_l=50), sim.start, now, [], None,
                        upto(sim.bubbles), upto(sim.temps))
     assert without.sugar is None  # ohne Hauswert und ohne Messung weiß die App nichts

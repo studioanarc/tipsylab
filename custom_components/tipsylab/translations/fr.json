@@ -1,0 +1,406 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nouvelle cuvée",
+        "description": "Indiquer le Brix ou la densité de départ du moût (inutile pour le Charmat).",
+        "data": {
+          "name": "Nom",
+          "mode": "Mode",
+          "brix0": "Brix de départ (réfractomètre)",
+          "sg0": "Densité de départ (SG)",
+          "volume_l": "Volume",
+          "start": "Début de fermentation (vide = maintenant)"
+        }
+      },
+      "sources": {
+        "title": "Sources",
+        "description": "Tout est facultatif ; les mesures se saisissent ensuite dans le panneau.",
+        "data": {
+          "bubble_device": "Compteur de bulles : identifiant de la Gärbox, p. ex. tipsy-a1b2c3",
+          "gravity_entity": "Densimètre : capteur de densité",
+          "gravity_unit": "Unité du densimètre",
+          "temperature_entity": "Température du vin",
+          "weight_entity": "Balance (poids de la cuve)",
+          "heater_host": "Chauffage : adresse du Shelly (IP)",
+          "pressure_entity": "Pression de la cuve",
+          "co2_target_entity": "Objectif CO₂ du régulateur (nombre ESPHome de la Tankbox)",
+          "bottle_pressure_entity": "Bouteille témoin : pression (Flaschenbox)",
+          "bottle_temperature_entity": "Bouteille témoin : température"
+        }
+      },
+      "reconfigure": {
+        "title": "Modifier les sources",
+        "description": "Par exemple ajouter une balance. Les mesures et l'historique sont conservés.",
+        "data": {
+          "bubble_device": "Compteur de bulles : identifiant de la Gärbox, p. ex. tipsy-a1b2c3",
+          "gravity_entity": "Densimètre : capteur de densité",
+          "gravity_unit": "Unité du densimètre",
+          "temperature_entity": "Température du vin",
+          "weight_entity": "Balance (poids de la cuve)",
+          "heater_host": "Chauffage : adresse du Shelly (IP)",
+          "pressure_entity": "Pression de la cuve",
+          "co2_target_entity": "Objectif CO₂ du régulateur (nombre ESPHome de la Tankbox)",
+          "bottle_pressure_entity": "Bouteille témoin : pression (Flaschenbox)",
+          "bottle_temperature_entity": "Bouteille témoin : température"
+        }
+      },
+      "target": {
+        "title": "Objectif",
+        "data": {
+          "target_bar_20c": "Pression à l'ouverture à 20 °C",
+          "bottle": "Bouteille",
+          "malo_in_bottle": "Compter la malolactique en bouteille",
+          "malic_g_l": "Acide malique à la mise en bouteille",
+          "dry_sugar_g_l": "Sec en dessous de",
+          "prv_bar": "La soupape de sécurité s'ouvre à",
+          "filling_loss": "Perte de CO₂ au tirage isobarique (fraction)",
+          "temp_start": "Température au début",
+          "temp_switch_sugar": "Changer à partir du sucre résiduel",
+          "temp_late": "Température ensuite",
+          "q10": "Q10 (facteur par 10 °C)",
+          "public": "Afficher sur le site (flux DataWein)"
+        },
+        "data_description": {
+          "target_bar_20c": "UE : pétillant jusqu'à 2,5 bar, mousseux à partir de 3 bar (à 20 °C).",
+          "malo_in_bottle": "Activer s'il reste de l'acide malique à la mise en bouteille : 0,7 g/L de sucre en moins par g/L.",
+          "temp_switch_sugar": "Par exemple 20 °C pour la malo, 14 °C à partir de 25 g/L. Laisser vide pour aucun plan."
+        }
+      }
+    },
+    "error": {
+      "must_required": "Il manque le Brix ou la densité de départ."
+    },
+    "abort": {
+      "reconfigure_successful": "Sources enregistrées."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Objectif et plan de température",
+        "data": {
+          "target_bar_20c": "Pression à l'ouverture à 20 °C",
+          "bottle": "Bouteille",
+          "malo_in_bottle": "Compter la malolactique en bouteille",
+          "malic_g_l": "Acide malique à la mise en bouteille",
+          "dry_sugar_g_l": "Sec en dessous de",
+          "prv_bar": "La soupape de sécurité s'ouvre à",
+          "filling_loss": "Perte de CO₂ au tirage isobarique (fraction)",
+          "temp_start": "Température au début",
+          "temp_switch_sugar": "Changer à partir du sucre résiduel",
+          "temp_late": "Température ensuite",
+          "q10": "Q10 (facteur par 10 °C)",
+          "public": "Afficher sur le site (flux DataWein)"
+        },
+        "data_description": {
+          "target_bar_20c": "UE : pétillant jusqu'à 2,5 bar, mousseux à partir de 3 bar (à 20 °C).",
+          "malo_in_bottle": "Activer s'il reste de l'acide malique à la mise en bouteille : 0,7 g/L de sucre en moins par g/L.",
+          "temp_switch_sugar": "Par exemple 20 °C pour la malo, 14 °C à partir de 25 g/L. Laisser vide pour aucun plan."
+        }
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "petnat": "Pet Nat",
+        "still": "Vin nature (tranquille)",
+        "charmat": "Charmat"
+      }
+    },
+    "bottle": {
+      "options": {
+        "750": "750 ml · capsule jusqu'à 6 bar",
+        "330": "330 ml · capsule jusqu'à 4,5 bar"
+      }
+    },
+    "gravity_unit": {
+      "options": {
+        "sg": "SG",
+        "oe": "°Oechsle",
+        "plato": "°Plato (si le densimètre l'envoie ainsi)"
+      }
+    },
+    "measurement_kind": {
+      "options": {
+        "brix": "Réfractomètre (°Bx)",
+        "density": "Densité",
+        "brix_density": "Réfractomètre + densité",
+        "sugar": "Sucre résiduel (labo, g/L)",
+        "malic": "Acide malique (g/L)",
+        "ph": "pH",
+        "bottle_pressure": "Pression en bouteille (bar)"
+      }
+    },
+    "density_unit": {
+      "options": {
+        "sg": "SG",
+        "oe": "°Oechsle",
+        "baume": "°Baumé",
+        "gcm3": "g/cm³"
+      }
+    },
+    "event_kind": {
+      "options": {
+        "racking": "Soutirage",
+        "volume": "Volume modifié",
+        "cooling": "Refroidissement",
+        "heating": "Chauffage",
+        "bottled": "Mis en bouteille",
+        "closed": "Clôturé (aux archives)",
+        "note": "Note"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "restzucker": {
+        "name": "Sucre résiduel"
+      },
+      "alkohol": {
+        "name": "Alcool"
+      },
+      "alkohol_flasche": {
+        "name": "Alcool en bouteille"
+      },
+      "flaschendruck": {
+        "name": "Bouteille témoin à 20 °C"
+      },
+      "gaergeschwindigkeit": {
+        "name": "Vitesse de fermentation"
+      },
+      "zielzucker": {
+        "name": "Sucre visé"
+      },
+      "dub": {
+        "name": "Temps avant la mise en bouteille"
+      },
+      "abfuellen": {
+        "name": "Mise en bouteille"
+      },
+      "fenster_beginn": {
+        "name": "Début de la fenêtre"
+      },
+      "fenster_ende": {
+        "name": "Fin de la fenêtre"
+      },
+      "druck_jetzt_10": {
+        "name": "Pression si maintenant (10 °C)"
+      },
+      "druck_jetzt_20": {
+        "name": "Pression si maintenant (20 °C)"
+      },
+      "solltemperatur": {
+        "name": "Température de consigne"
+      },
+      "tank_sollwert": {
+        "name": "Consigne de la cuve"
+      },
+      "co2_ziel": {
+        "name": "Objectif CO₂"
+      },
+      "co2_geloest": {
+        "name": "CO₂ dissous"
+      },
+      "status": {
+        "name": "État",
+        "state": {
+          "waiting": "attend des données",
+          "fermenting": "fermente",
+          "approaching": "approche",
+          "window": "dans la fenêtre",
+          "past": "fenêtre passée",
+          "dry": "sec",
+          "stuck": "bloquée ?",
+          "bottled": "mis en bouteille",
+          "charmat": "Régulation Charmat"
+        }
+      }
+    },
+    "binary_sensor": {
+      "im_fenster": {
+        "name": "Dans la fenêtre de mise en bouteille"
+      },
+      "messung_empfohlen": {
+        "name": "Mesure recommandée"
+      },
+      "flaschengrenze": {
+        "name": "Limite de la bouteille dépassée"
+      },
+      "sicherheitsabstand": {
+        "name": "Consigne trop proche de la soupape de sécurité"
+      },
+      "flaschendruck_alarm": {
+        "name": "Bouteille témoin au-dessus de la pression attendue"
+      },
+      "quelle_stumm": {
+        "name": "Source muette"
+      },
+      "akku_schwach": {
+        "name": "Batterie faible"
+      }
+    }
+  },
+  "exceptions": {
+    "unknown_batch": {
+      "message": "Aucune cuvée TIPSYLAB avec l'identifiant {entry_id}."
+    },
+    "no_entry": {
+      "message": "Aucune entrée {kind} à {time}."
+    },
+    "bottling_needs_sugar": {
+      "message": "La mise en bouteille demande un sucre résiduel actuel : mesurer d'abord, puis mettre en bouteille."
+    },
+    "pair_needs_both": {
+      "message": "Réfractomètre + densité demande les deux valeurs."
+    }
+  },
+  "services": {
+    "add_measurement": {
+      "name": "Ajouter une mesure",
+      "description": "Réfractomètre, densité, labo, acide malique, pH ou pression en bouteille.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Cuvée",
+          "description": ""
+        },
+        "kind": {
+          "name": "Type",
+          "description": ""
+        },
+        "value": {
+          "name": "Valeur",
+          "description": "Pour réfractomètre + densité : la valeur Brix."
+        },
+        "value2": {
+          "name": "Deuxième valeur",
+          "description": "Pour réfractomètre + densité : la densité. Pour un résultat de labo : l'alcool du même échantillon en % vol."
+        },
+        "unit": {
+          "name": "Unité de densité",
+          "description": ""
+        },
+        "temperature": {
+          "name": "Température",
+          "description": "Pour la pression en bouteille : température de la bouteille."
+        },
+        "time": {
+          "name": "Moment",
+          "description": "Vide = maintenant."
+        },
+        "note": {
+          "name": "Note",
+          "description": ""
+        }
+      }
+    },
+    "add_event": {
+      "name": "Ajouter un événement",
+      "description": "Soutirage, volume, refroidissement, chauffage, mis en bouteille, clôturé ou note.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Cuvée",
+          "description": ""
+        },
+        "kind": {
+          "name": "Type",
+          "description": ""
+        },
+        "value": {
+          "name": "Valeur",
+          "description": "Pour le volume : nouveau volume en litres."
+        },
+        "note": {
+          "name": "Note",
+          "description": ""
+        }
+      }
+    },
+    "remove_entry": {
+      "name": "Supprimer une entrée",
+      "description": "Supprime une mesure ou un événement, par exemple un « mis en bouteille » saisi par erreur.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Cuvée",
+          "description": ""
+        },
+        "kind": {
+          "name": "Type",
+          "description": ""
+        },
+        "time": {
+          "name": "Moment",
+          "description": "Tel qu'enregistré (ISO)."
+        }
+      }
+    },
+    "website_feed": {
+      "name": "Flux pour le site",
+      "description": "Chiffres publics de toutes les cuvées avec « afficher sur le site », pour le blueprint du flux DataWein.",
+      "fields": {}
+    },
+    "update_settings": {
+      "name": "Modifier les réglages",
+      "description": "Objectif, bouteille, malo, volume et plan de température d'une cuvée.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Cuvée",
+          "description": ""
+        },
+        "target_bar_20c": {
+          "name": "Pression à l'ouverture à 20 °C",
+          "description": ""
+        },
+        "bottle": {
+          "name": "Bouteille",
+          "description": ""
+        },
+        "malo_in_bottle": {
+          "name": "Compter la malolactique en bouteille",
+          "description": ""
+        },
+        "malic_g_l": {
+          "name": "Acide malique à la mise en bouteille",
+          "description": ""
+        },
+        "dry_sugar_g_l": {
+          "name": "Sec en dessous de",
+          "description": ""
+        },
+        "prv_bar": {
+          "name": "La soupape de sécurité s'ouvre à",
+          "description": ""
+        },
+        "filling_loss": {
+          "name": "Perte de CO₂ au tirage isobarique (fraction)",
+          "description": ""
+        },
+        "temp_start": {
+          "name": "Température au début",
+          "description": ""
+        },
+        "temp_switch_sugar": {
+          "name": "Changer à partir du sucre résiduel",
+          "description": ""
+        },
+        "temp_late": {
+          "name": "Température ensuite",
+          "description": ""
+        },
+        "q10": {
+          "name": "Q10 (facteur par 10 °C)",
+          "description": ""
+        },
+        "public": {
+          "name": "Afficher sur le site (flux DataWein)",
+          "description": ""
+        },
+        "volume_l": {
+          "name": "Volume",
+          "description": ""
+        }
+      }
+    }
+  }
+}

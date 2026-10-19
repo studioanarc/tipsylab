@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from functools import partial
 import json
@@ -10,10 +10,12 @@ import logging
 from typing import Any
 
 from homeassistant.components import mqtt
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_state_change_event
@@ -22,6 +24,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    BATTERY_LOW_PCT,
     BUBBLE_TOPIC,
     CONF_BOTTLE_PRESSURE_ENTITY,
     CONF_BOTTLE_TEMP_ENTITY,
@@ -57,6 +60,7 @@ from .const import (
     OPT_TEMP_SWITCH_SUGAR,
     READING_INTERVAL_S,
     READING_RETENTION_DAYS,
+    SILENT_AFTER_H,
     STORAGE_VERSION,
 )
 from .core.bottling import BottleStatus, Bottling, bottle_status, observed_saturation
@@ -70,6 +74,7 @@ from .core.house import crossing_time, forecast_check
 from .core.physics import FILL_MID, YIELD_CO2_SUGAR
 from .core.units import brix_to_sg, to_sg
 from .house import get_house
+from .texts import lang_of
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,6 +91,9 @@ class BatchResult:
     estimate: Estimate | None = None
     charmat: CharmatStatus | None = None
     bottle: BottleStatus | None = None  # Messflasche nach dem Abfüllen (Pet Nat)
+    silent: list[str] = field(default_factory=list)  # Quellen ohne Werte seit SILENT_AFTER_H
+    battery: tuple[str, float] | None = None  # schwächster Akku unter den Quellen: (Gerät, %)
+    lang: str = "en"  # Sprache des Servers für Handlungen in Benachrichtigungen
 
 
 def _bottle_dict(bottle: BottleStatus | None) -> dict[str, Any] | None:
@@ -104,7 +112,6 @@ def _bottle_dict(bottle: BottleStatus | None) -> dict[str, Any] | None:
         "done": bottle.done,
         "state": bottle.state,
         "alarm": bottle.alarm,
-        "action": bottle.action,
     }
 
 
@@ -157,9 +164,11 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
         self._last_heater: tuple[float, datetime] | None = None
         self._last_co2: float | None = None
         self._display_off_sent = False
+        self._loaded_at = dt_util.utcnow()
 
     # --- Lebenszyklus ------------------------------------------------------------------------
     async def async_load(self) -> None:
+        self._loaded_at = dt_util.utcnow()  # Quellen gelten erst ab jetzt als stumm, nicht seit dem Neustart
         stored = await self._store.async_load()
         if stored:
             self.store_data.update(stored)
@@ -383,7 +392,9 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 self.store_data[key] = keep
                 break
         else:
-            raise HomeAssistantError(f"Kein Eintrag {kind} um {time}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="no_entry", translation_placeholders={"kind": kind, "time": time}
+            )
         if kind == "bottled" and not any(e["kind"] == "bottled" for e in self.store_data["events"]):
             self.store_data.pop("bottling", None)
         if kind == "closed":
@@ -403,7 +414,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
         """Stand beim Abfüllen festhalten: Restzucker, Temperatur, Flasche, Nachkalkulation der Prognose."""
         est = self.data.estimate if self.data else None
         if self.mode == "charmat" or est is None or est.sugar is None:
-            raise HomeAssistantError("Zum Abfüllen braucht es einen aktuellen Restzucker: erst messen, dann abfüllen.")
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="bottling_needs_sugar")
         settings = self.settings()
         temps = self._series("temps")
         temp = temps[-1][1] if temps and now - temps[-1][0] <= timedelta(hours=6) else FILL_MID.t_bottling_c
@@ -534,7 +545,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             return Anchor(t, model.sugar_from_density(sg), SIGMA["sg"], kind)
         if kind == "brix_density":
             if "value2" not in m:
-                raise HomeAssistantError("Für Refraktometer + Dichte braucht es beide Werte")
+                raise HomeAssistantError(translation_domain=DOMAIN, translation_key="pair_needs_both")
             sg = to_sg(m["value2"], m.get("unit", "sg"))
             sugar, _ = model.sugar_and_abv_from_pair(m["value"], sg)
             return Anchor(t, sugar, SIGMA["brix_sg"], kind, (float(m["value"]), sg))
@@ -556,8 +567,13 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
     # --- Rechnen ------------------------------------------------------------------------------
     async def _async_update_data(self) -> BatchResult:
         now = dt_util.utcnow()
+        checks: dict[str, Any] = {
+            "silent": self._silent(now),
+            "battery": self._battery(),
+            "lang": lang_of(self.hass.config.language),
+        }
         if self.mode == "charmat":
-            return BatchResult(charmat=await self._update_charmat())
+            return BatchResult(charmat=await self._update_charmat(), **checks)
         model, anchors = self._estimate_inputs()
         bottling = self.bottling
         est = await self.hass.async_add_executor_job(
@@ -582,11 +598,78 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             bottle = bottle_status(bottling, self._bottle_readings(), now) if self.mode == "petnat" else None
             await self._display_off(now)
             await self._push_heater(None, now)
-            return BatchResult(estimate=est, bottle=bottle)
+            return BatchResult(estimate=est, bottle=bottle, **checks)
         self._remember_forecast(est, now)
         await self._publish_display(est, now)
         await self._push_heater(est.planned_temp, now)
-        return BatchResult(estimate=est)
+        return BatchResult(estimate=est, **checks)
+
+    # --- Quellen überwachen -------------------------------------------------------------------
+    def _sources(self) -> dict[str, str | None]:
+        """Quellen, die gerade Werte liefern sollen: Code -> Entität (None: Blasenzähler über MQTT).
+
+        Nach dem Abfüllen nur noch die Messflasche, nach dem Abschließen nichts mehr.
+        """
+        if any(e["kind"] == "closed" for e in self.store_data["events"]):
+            return {}
+        if self.store_data.get("bottling"):
+            keys = {"bottle_pressure": CONF_BOTTLE_PRESSURE_ENTITY, "bottle_temperature": CONF_BOTTLE_TEMP_ENTITY}
+            return {code: self._conf(key) for code, key in keys.items() if self._conf(key)}
+        keys = {
+            "gravity": CONF_GRAVITY_ENTITY,
+            "temperature": CONF_TEMP_ENTITY,
+            "weight": CONF_WEIGHT_ENTITY,
+            "pressure": CONF_PRESSURE_ENTITY,
+        }
+        out: dict[str, str | None] = {code: self._conf(key) for code, key in keys.items() if self._conf(key)}
+        if self._conf(CONF_BUBBLE_DEVICE) and "mqtt" in self.hass.config.components:
+            out["bubbles"] = None
+        return out
+
+    def _silent(self, now: datetime) -> list[str]:
+        """Quellen ohne neuen Wert seit SILENT_AFTER_H. Gezählt wird frühestens ab dem Laden, damit
+        ein Neustart nach langer Pause keinen Fehlalarm gibt."""
+        out = []
+        for code, entity_id in self._sources().items():
+            last: datetime | None
+            if entity_id is None:
+                pts = self.store_data["readings"]["bubbles"]
+                last = _parse(pts[-1][0]) if pts else None
+            else:
+                state = self.hass.states.get(entity_id)
+                if state is None:
+                    last = None
+                elif state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+                    last = state.last_changed
+                else:
+                    last = state.last_reported  # auch, wenn der Wert gleich bleibt
+            since = max(last, self._loaded_at) if last is not None else self._loaded_at
+            if now - since > timedelta(hours=SILENT_AFTER_H):
+                out.append(code)
+        return out
+
+    def _battery(self) -> tuple[str, float] | None:
+        """Schwächster Akku an den Geräten der Quellen, etwa einer RAPT Pill: (Gerätename, %)."""
+        entities, devices = er.async_get(self.hass), dr.async_get(self.hass)
+        lowest: tuple[str, float] | None = None
+        for entity_id in {e for e in self._sources().values() if e}:
+            source = entities.async_get(entity_id)
+            if source is None or source.device_id is None:
+                continue
+            for other in er.async_entries_for_device(entities, source.device_id):
+                if other.domain != "sensor" or (other.device_class or other.original_device_class) != SensorDeviceClass.BATTERY:
+                    continue
+                pct = _float_state(self.hass.states.get(other.entity_id))
+                if pct is not None and (lowest is None or pct < lowest[1]):
+                    device = devices.async_get(source.device_id)
+                    name = (device.name_by_user or device.name) if device else None
+                    lowest = (name or entity_id, pct)
+        return lowest
+
+    @property
+    def battery_low(self) -> bool:
+        battery = self.data.battery if self.data else None
+        return battery is not None and battery[1] <= BATTERY_LOW_PCT
 
     def _remember_forecast(self, est: Estimate, now: datetime) -> None:
         """Prognose-Stand für die Nachkalkulation, höchstens stündlich."""
@@ -689,7 +772,9 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
         anchors = [a for a in (self._anchor(x, model) for x in self.store_data["measurements"]) if a]
         try:
             anchor = self._anchor(m, model)
-        except (HomeAssistantError, ValueError, ZeroDivisionError) as err:
+        except HomeAssistantError as err:
+            return {**out, "error": str(err), "error_key": err.translation_key}
+        except (ValueError, ZeroDivisionError) as err:
             return {**out, "error": str(err)}
         if anchor is None:
             return out
@@ -800,6 +885,10 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
             "bottling": self.store_data.get("bottling"),
             "bottle": _bottle_dict(self.data.bottle if self.data else None),
             "closed": any(e["kind"] == "closed" for e in self.store_data["events"]),
+            "silent": self.data.silent if self.data else [],
+            "silent_after_h": SILENT_AFTER_H,
+            "battery": list(self.data.battery) if self.data and self.data.battery else None,
+            "battery_low": self.battery_low,
             "settings": {
                 "target_bar_20c": settings.target_bar_20c,
                 "bottle": settings.bottle,
@@ -865,6 +954,7 @@ class TipsylabCoordinator(DataUpdateCoordinator[BatchResult]):
                 "fit_rel": est.fit_rel,
                 "weight_g_l_per_kg": est.weight_g_l_per_kg,
                 "weight_calibrated": est.weight_calibrated,
+                "weight_steps": est.weight_steps,
                 "notes": est.notes,
                 "series": [[_iso(t), s, sig] for t, s, sig in series[::step]],
                 "forecast": [[_iso(t), s, hi, lo] for t, s, hi, lo in est.forecast[:: max(1, len(est.forecast) // 120)]],

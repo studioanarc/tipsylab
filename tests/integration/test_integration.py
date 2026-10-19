@@ -11,6 +11,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, async_
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
@@ -137,10 +138,11 @@ async def test_websocket_batches(hass: HomeAssistant, petnat_entry: MockConfigEn
 async def test_unknown_batch_is_rejected(hass: HomeAssistant, petnat_entry: MockConfigEntry) -> None:
     petnat_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(petnat_entry.entry_id)
-    with pytest.raises(Exception, match="TIPSYLAB"):
+    with pytest.raises(ServiceValidationError) as err:
         await hass.services.async_call(
             DOMAIN, "add_measurement", {"config_entry_id": "gibtsnicht", "kind": "brix", "value": 9.0}, blocking=True
         )
+    assert err.value.translation_key == "unknown_batch"
 
 
 async def test_bubbles_via_mqtt_and_display(hass: HomeAssistant, mqtt_mock_entry, tmp_path) -> None:

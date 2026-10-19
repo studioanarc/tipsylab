@@ -48,7 +48,7 @@ async def ws_preview(hass: HomeAssistant, connection: websocket_api.ActiveConnec
     entry = hass.config_entries.async_get_entry(msg["entry_id"])
     coordinator = getattr(entry, "runtime_data", None) if entry and entry.domain == DOMAIN else None
     if coordinator is None:
-        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Ansatz nicht gefunden")
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Batch not found")  # das Panel übersetzt
         return
     result = await coordinator.async_preview(msg["kind"], msg["value"], msg.get("value2"), msg.get("unit"))
     connection.send_result(msg["id"], result)

@@ -233,7 +233,27 @@
       },
       "flaschendruck_alarm": {
         "name": "Measurement bottle above expected pressure"
+      },
+      "quelle_stumm": {
+        "name": "Source silent"
+      },
+      "akku_schwach": {
+        "name": "Battery low"
       }
+    }
+  },
+  "exceptions": {
+    "unknown_batch": {
+      "message": "No TIPSYLAB batch with the id {entry_id}."
+    },
+    "no_entry": {
+      "message": "No {kind} entry at {time}."
+    },
+    "bottling_needs_sugar": {
+      "message": "Bottling needs a current residual sugar: measure first, then bottle."
+    },
+    "pair_needs_both": {
+      "message": "Refractometer + density needs both values."
     }
   },
   "services": {

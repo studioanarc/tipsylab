@@ -5,8 +5,8 @@ from datetime import timedelta
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.tipsylab.core.bottling import ACTION_DANGER, ACTION_HIGH
 from custom_components.tipsylab.house import get_house
+from custom_components.tipsylab.texts import say
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -60,8 +60,9 @@ async def _bottle_at(hass: HomeAssistant, entry: MockConfigEntry, sugar: float) 
 async def test_bottling_needs_a_current_sugar(hass: HomeAssistant) -> None:
     entry = _entry()
     await _setup(hass, entry)
-    with pytest.raises(HomeAssistantError, match="Restzucker"):
+    with pytest.raises(HomeAssistantError) as err:
         await _call(hass, entry, "add_event", kind="bottled")
+    assert err.value.translation_key == "bottling_needs_sugar"
     assert entry.runtime_data.bottling is None
 
 
@@ -102,11 +103,11 @@ async def test_measurement_bottle_raises_and_clears_the_alarm(hass: HomeAssistan
     await _call(hass, entry, "add_measurement", kind="bottle_pressure", value=round(expected + 1.0, 2), temperature=20.0)
     state = hass.states.get(alarm_id)
     assert state.state == "on"
-    assert state.attributes["handlung"] == ACTION_HIGH
+    assert state.attributes["handlung"] == say("bottle_high", "en")
     assert float(hass.states.get(pressure_id).state) == pytest.approx(expected + 1.0, abs=0.02)
 
     await _call(hass, entry, "add_measurement", kind="bottle_pressure", value=5.2, temperature=20.0)
-    assert hass.states.get(alarm_id).attributes["handlung"] == ACTION_DANGER
+    assert hass.states.get(alarm_id).attributes["handlung"] == say("bottle_danger", "en")
 
     await _call(hass, entry, "add_measurement", kind="bottle_pressure", value=round(expected - 0.5, 2), temperature=20.0)
     assert hass.states.get(alarm_id).state == "off"

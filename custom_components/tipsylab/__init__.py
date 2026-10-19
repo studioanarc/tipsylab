@@ -106,7 +106,9 @@ SETTINGS_SCHEMA = vol.Schema(
 def _coordinator(hass: HomeAssistant, entry_id: str) -> TipsylabCoordinator:
     entry = hass.config_entries.async_get_entry(entry_id)
     if entry is None or entry.domain != DOMAIN or not hasattr(entry, "runtime_data"):
-        raise ServiceValidationError(f"Kein TIPSYLAB-Ansatz mit der ID {entry_id}")
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="unknown_batch", translation_placeholders={"entry_id": entry_id}
+        )
     return entry.runtime_data
 
 
