@@ -65,6 +65,9 @@ Hintergrund, Physik und Entscheidungen: [docs/PLAN-Abfuellzeitpunkt.md](docs/PLA
 - **Gewicht:** Gewichtsverlust ist entwichenes CO₂. Mit dem Volumen ergibt das den vergorenen
   Zucker direkt; liegen Messungen im Verlauf, wird an ihnen geeicht. Gelöstes CO₂ und Proben
   rechnet die Integration heraus. Unter einem Tank mit drei Beinen reicht eine Wägezelle.
+- **Quellen im Blick:** „Quelle stumm“, wenn Spindel, Gärbox, Waage, Fühler oder Messflasche
+  seit über 3 h nichts schicken; „Akku schwach“ unter 20 % bei Geräten mit Akku, etwa einer RAPT
+  Pill. Beides mit Handlung für die Benachrichtigung.
 
 ## Einrichten
 
@@ -81,12 +84,21 @@ es privat bleibt, die Ordner von Hand kopieren: `custom_components/tipsylab` nac
    Ansatz ist ein Eintrag: Name, Betriebsart, Start-Brix oder Startdichte, Volumen, dann die
    Quellen (Gärbox-ID, Spindel, Temperatur, Waage, Shelly, beim Charmat Tankdruck und CO₂-Ziel),
    dann das Ziel. Quellen lassen sich später über „Neu konfigurieren“ ändern, etwa um eine Waage
-   nachzurüsten; Messungen bleiben dabei erhalten.
+   nachzurüsten; Messungen bleiben dabei erhalten. Als Spindel taugt jede Dichte-Entität: iSpindel
+   oder GravityMon, die RAPT Pill über die Integration „RAPT Bluetooth“, ein Tilt über „Tilt
+   Hydrometer BLE“ (Einheit jeweils SG). Im Keller empfängt die Kellerluftbox sie als
+   Bluetooth-Proxy; die RAPT Pill dafür in der RAPT-App auf Bluetooth stellen.
 4. **Panel** „TIPSYLAB“ in der Seitenleiste: Messungen eintragen, Ziel einstellen. Dieselben Services
-   (`tipsylab.add_measurement`, `add_event`, `update_settings`) gibt es für Automationen.
+   (`tipsylab.add_measurement`, `add_event`, `update_settings`) gibt es für Automationen. Das Panel
+   spricht die Sprache von Home Assistant; unten lässt es sich auf Deutsch, Französisch oder
+   Englisch umstellen (gilt für diesen Browser). Entitäten, Einrichtung und Handlungen in den
+   Benachrichtigungen folgen der Sprache des Servers.
 5. **Benachrichtigungen:** Einstellungen → Automationen → Blueprints → Blueprint importieren:
    - `https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/abfuellfenster.yaml`
    - `https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/alarm.yaml`
+
+   In beiden die Sprache der Nachricht wählen. In „Alarm aufs Handy“ neben den Alarmen der Boxen
+   auch „Quelle stumm“ und „Akku schwach“ der Ansätze eintragen.
 
 ## Sicherheit
 
@@ -130,8 +142,10 @@ Anleitung in [`tools/panel-vorschau/index.html`](tools/panel-vorschau/index.html
 
 Umgesetzt: Integration mit Panel, Prognose mit Monte-Carlo-Fenster, Druckmodell, Gewicht als
 Quelle, Alkohol fürs Etikett; nach dem Abfüllen Messflasche mit Alarm, Archiv, Nachkalkulation und
-Hauswerte; Gärbox-Firmware 2.2 mit Display und optionaler Waage; ESPHome für Tank-, Waage-,
-Flaschen- und Kellerluftbox; Heizbox-Skript; Blueprints.
+Hauswerte; „Quelle stumm“ und „Akku schwach“; Oberfläche, Entitäten und Benachrichtigungen auf
+Deutsch, Französisch und Englisch; Gärbox-Firmware 2.2 mit Display und optionaler Waage; ESPHome
+für Tank-, Waage-, Flaschen- und Kellerluftbox (mit Bluetooth-Proxy für Spindeln); Heizbox-Skript;
+Blueprints.
 
 Dazu der öffentliche Feed für die DataWein-Seite (Empfänger und Seite in `website/datawein`).
 

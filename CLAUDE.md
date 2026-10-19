@@ -6,7 +6,11 @@ allen Entscheidungen: `docs/PLAN-Abfuellzeitpunkt.md`. Bei Fachfragen dort zuers
 
 ## Zusammenarbeit
 
-- Deutsch, den Nutzer duzen. Oberflächen sind deutsch.
+- Deutsch, den Nutzer duzen. Oberflächen gibt es auf Deutsch, Französisch und Englisch; Deutsch
+  ist die Quelle. Neue Texte immer in allen drei Sprachen: im Panel als `L(Deutsch, Englisch,
+  Französisch)`, in der Integration über `tools/make_translations.py`, Handlungen für
+  Benachrichtigungen in `texts.py`, in Blueprints über die Eingabe „Sprache“. Der Kern liefert
+  Codes statt Sätzen. Französisch duzt wie das Deutsche.
 - Gestaltung wie tipsy.pt und der Entwurf in `docs/ui-entwurf/`: Rubik Mono One für die eine
   Antwort, Fraunces für Text, JetBrains Mono für Daten; Papier-Rosé `#f9e3e7`, Ultramarin
   `#2b2c78`, Koralle nur für Warnungen. **Keine runden Ecken**, nirgends.
