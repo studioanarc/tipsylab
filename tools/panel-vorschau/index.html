@@ -6,7 +6,7 @@
      python3 -m http.server 8765 --bind 127.0.0.1        (im Repo-Ordner)
      http://127.0.0.1:8765/tools/panel-vorschau/?tab=today&narrow=1&w=390
 
-     Parameter: tab=today|measure|target|tank, b=0|1|2|3 (Ansatz), archive=1 (Archiv öffnen), w=Breite in px, dark=1,
+     Parameter: tab=today|measure|target|tank, b=0|1|2|3 (Ansatz), archive=1 (Archiv öffnen), w=Breite in px, dark=1, lang=de|fr|en,
      type=<Messwert> (tippt in „Messung“), kind=<Messart> (z. B. sugar für Labor), type2=<zweiter Wert> (Dichte in °Oe oder Alkohol in % vol), slide=<°C> (Keller-Regler). -->
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TIPSYLAB Vorschau</title>
@@ -20,8 +20,10 @@ const previews = await (await fetch("./previews.json")).json();
 try {
   localStorage.setItem("tipsylab.tab", q.get("tab") || "today");
   localStorage.setItem("tipsylab.batch", data.batches[Number(q.get("b") || 0)].entry_id);
+  localStorage.removeItem("tipsylab.lang");
 } catch {}
 const hass = {
+  language: q.get("lang") || "de",
   themes: { darkMode: q.get("dark") === "1" },
   callWS: async (msg) => {
     if (msg.type === "tipsylab/batches") return data;
