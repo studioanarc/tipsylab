@@ -157,7 +157,8 @@ Flaschenbox geht es auch: das Aphrometer ablesen und unter „Messung → Flasch
 
 **Zweck:** misst CO₂ in der Kellerluft. Gär-CO₂ ist schwerer als Luft und sammelt sich am Boden;
 ab 5.000 ppm (Arbeitsplatzgrenzwert) gibt es Alarm. Dazu Temperatur, Feuchte und Luftdruck.
-Tief montieren, etwa 30 cm über dem Boden.
+Tief montieren, etwa 30 cm über dem Boden. Nebenbei ist sie Bluetooth-Proxy: Sie empfängt
+Spindeln mit Bluetooth (RAPT Pill, Tilt) im Keller und reicht sie an Home Assistant weiter.
 
 **Hardware:** M5Stack AtomS3 Lite (die Box braucht kein Display; AtomS3R oder AtomS3 gehen auch),
 Grove-Hub, Sensirion SCD41 (CO₂), M5 ENV IV (SHT40 und BMP280).
@@ -168,6 +169,9 @@ Grove-Hub, Sensirion SCD41 (CO₂), M5 ENV IV (SHT40 und BMP280).
 
 **In Home Assistant:** die Sensoren „CO₂ lüften“ und „CO₂ Alarm“ in den Blueprint „Alarm aufs
 Handy“ eintragen. Alle paar Monate an der frischen Luft „CO₂ an Frischluft kalibrieren“ drücken.
+Eine RAPT Pill (in der RAPT-App auf Bluetooth gestellt) taucht danach unter „Entdeckt“ auf
+(Integration „RAPT Bluetooth“); ihre Dichte dann im Ansatz als Spindel eintragen, Einheit SG.
+Den Proxy nicht in die Tankbox setzen: Die regelt das Ventil und soll nichts anderes tun.
 
 ## Heizbox
 

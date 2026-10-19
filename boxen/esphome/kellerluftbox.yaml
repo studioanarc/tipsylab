@@ -11,6 +11,10 @@
 # Woche Frischluft (~420 ppm) sieht, was im Gärkeller nicht stimmt. Stattdessen alle paar Monate
 # das Gerät 5 Minuten ins Freie legen und "CO₂ an Frischluft kalibrieren" drücken.
 #
+# Bluetooth-Proxy: Die Box empfängt Spindeln mit Bluetooth im Keller (RAPT Pill, Tilt) und reicht
+# sie an Home Assistant weiter, das sie dann von selbst findet (Integration „RAPT Bluetooth“).
+# Nicht in die Tankbox: Die regelt das Ventil und soll nichts anderes tun.
+#
 # Einrichten: secrets.yaml.example nach secrets.yaml kopieren, dann
 #   esphome run kellerluftbox.yaml
 # Eine Waage lässt sich anhängen: siehe pakete/waage.yaml (G5 und G6 sind frei).
@@ -27,7 +31,7 @@ esphome:
   comment: TIPSYLAB Kellerluft
   project:
     name: studioanarc.tipsylab-kellerluft
-    version: "0.1.0"
+    version: "0.2.0"
 
 esp32:
   board: m5stack-atoms3
@@ -53,6 +57,17 @@ wifi:
     password: !secret ap_password
 
 captive_portal:
+
+# Bluetooth-Proxy (Werte wie im ESPHome-Projekt „Bluetooth Proxy“). Aktiv, weil Home Assistant
+# die RAPT Pill nur über verbindbare Empfänger erkennt; verbunden wird trotzdem nichts.
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 1100ms
+    window: 1100ms
+    active: true
+
+bluetooth_proxy:
+  active: true
 
 i2c:
   sda: GPIO2
