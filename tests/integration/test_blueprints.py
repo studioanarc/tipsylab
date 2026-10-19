@@ -7,6 +7,7 @@ import pytest
 from homeassistant.components.automation.config import AUTOMATION_BLUEPRINT_SCHEMA, async_validate_config_item
 from homeassistant.components.blueprint.models import Blueprint, BlueprintInputs
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.template import Template
 from homeassistant.util.yaml import load_yaml
 
 FOLDER = Path(__file__).parents[2] / "blueprints" / "automation" / "tipsylab"
@@ -45,3 +46,36 @@ async def test_blueprint_is_a_valid_automation(hass: HomeAssistant, name: str) -
     validated = await async_validate_config_item(hass, name, config)
     assert validated is not None
     assert validated.validation_error is None, validated.validation_error
+
+
+def _message(name: str, sprache: str) -> str:
+    blueprint = Blueprint(load_yaml(FOLDER / name), expected_domain="automation", schema=AUTOMATION_BLUEPRINT_SCHEMA)
+    inputs = BlueprintInputs(blueprint, {"use_blueprint": {"path": name, "input": {**INPUTS[name], "sprache": sprache}}})
+    inputs.validate()
+    config = inputs.async_substitute()
+    return next(a["message"] for a in config["actions"] if a.get("domain") == "mobile_app")
+
+
+@pytest.mark.parametrize(("sprache", "word"), [("de", "Abfüllen"), ("fr", "Mise en bouteille"), ("en", "Bottling")])
+async def test_bottling_message_in_each_language(hass: HomeAssistant, sprache: str, word: str) -> None:
+    text = Template(_message("abfuellfenster.yaml", sprache), hass).async_render(
+        {"sprache": sprache, "neu": "approaching", "dub": "2d 4h"}
+    )
+    assert text.startswith(word)
+    assert "2d 4h" in text
+
+
+@pytest.mark.parametrize(("sprache", "word"), [("de", "seit"), ("fr", "depuis"), ("en", "since")])
+async def test_alarm_message_in_each_language(hass: HomeAssistant, sprache: str, word: str) -> None:
+    hass.states.async_set("binary_sensor.test_quelle_stumm", "on", {"friendly_name": "Quelle stumm", "handlung": "Prüfen."})
+    state = hass.states.get("binary_sensor.test_quelle_stumm")
+    trigger = {"entity_id": state.entity_id, "to_state": state}
+    text = Template(_message("alarm.yaml", sprache), hass).async_render({"sprache": sprache, "trigger": trigger})
+    assert f"Quelle stumm {word}" in text
+    assert text.endswith("Prüfen.")
+    hass.states.async_set("binary_sensor.test_co2", "on", {"friendly_name": "CO₂ Alarm"})
+    state = hass.states.get("binary_sensor.test_co2")
+    text = Template(_message("alarm.yaml", sprache), hass).async_render(
+        {"sprache": sprache, "trigger": {"entity_id": state.entity_id, "to_state": state}}
+    )
+    assert "Sicherheitsventil" in text or "soupape" in text or "safety valve" in text

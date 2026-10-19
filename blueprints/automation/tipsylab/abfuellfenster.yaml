@@ -38,6 +38,21 @@ blueprint:
               value: stuck
             - label: Naturwein trocken
               value: dry
+    sprache:
+      name: Sprache · Langue · Language
+      description: >-
+        Für die Sätze dieser Nachricht. Namen der Sensoren und Handlungen kommen aus TIPSYLAB in der
+        Sprache des Servers (Einstellungen → System → Allgemein).
+      default: de
+      selector:
+        select:
+          options:
+            - label: Deutsch
+              value: de
+            - label: Français
+              value: fr
+            - label: English
+              value: en
 
 mode: queued
 
@@ -48,6 +63,7 @@ triggers:
 
 variables:
   zustaende: !input zustaende
+  sprache: !input sprache
   neu: "{{ trigger.to_state.state }}"
   ansatz: "{{ device_attr(device_id(trigger.entity_id), 'name') or trigger.to_state.name }}"
   dub: >-
@@ -67,9 +83,23 @@ actions:
     device_id: !input handy
     title: "{{ ansatz }}"
     message: >-
-      {% if neu == 'approaching' %}Abfüllen in etwa {{ dub }}. Flaschen und Kronkorken bereitlegen, täglich messen.
-      {% elif neu == 'window' %}Das Abfüllfenster ist offen. Eine letzte Messung bestätigt es.
-      {% elif neu == 'past' %}Das Fenster ist vorbei. Jetzt abfüllen; der Druck wird niedriger als geplant.
-      {% elif neu == 'stuck' %}Gärung stockt? Der Zucker fällt kaum, ohne dass es kühler wurde. Bitte messen.
-      {% elif neu == 'dry' %}Laut Schätzung trocken. Eine Messung bestätigt es.
-      {% else %}Status: {{ neu }}{% endif %}
+      {% set texte = {
+        'de': {
+          'approaching': 'Abfüllen in etwa ' ~ dub ~ '. Flaschen und Kronkorken bereitlegen, täglich messen.',
+          'window': 'Das Abfüllfenster ist offen. Eine letzte Messung bestätigt es.',
+          'past': 'Das Fenster ist vorbei. Jetzt abfüllen; der Druck wird niedriger als geplant.',
+          'stuck': 'Gärung stockt? Der Zucker fällt kaum, ohne dass es kühler wurde. Bitte messen.',
+          'dry': 'Laut Schätzung trocken. Eine Messung bestätigt es.'},
+        'fr': {
+          'approaching': 'Mise en bouteille dans environ ' ~ dub ~ '. Préparer bouteilles et capsules, mesurer chaque jour.',
+          'window': 'La fenêtre de mise en bouteille est ouverte. Une dernière mesure la confirme.',
+          'past': 'La fenêtre est passée. Mettre en bouteille maintenant ; la pression sera plus basse que prévu.',
+          'stuck': 'Fermentation bloquée ? Le sucre baisse à peine sans que la température ait baissé. Merci de mesurer.',
+          'dry': "Sec selon l'estimation. Une mesure le confirme."},
+        'en': {
+          'approaching': 'Bottling in about ' ~ dub ~ '. Get bottles and crown caps ready, measure daily.',
+          'window': 'The bottling window is open. One last measurement confirms it.',
+          'past': 'The window has passed. Bottle now; the pressure will be lower than planned.',
+          'stuck': 'Fermentation stuck? The sugar barely falls although it did not get cooler. Please measure.',
+          'dry': 'Dry according to the estimate. A measurement confirms it.'}} %}
+      {{ texte[sprache][neu] if neu in texte[sprache] else 'Status: ' ~ neu }}
