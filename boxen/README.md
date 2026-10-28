@@ -1,97 +1,99 @@
-# Die Boxen
+# The boxes
 
-Die Boxen messen und regeln vor Ort. Gerechnet wird in Home Assistant: Die TIPSYLAB-Integration
-führt alle Quellen eines Ansatzes zusammen (Messungen, Spindel, Blasen, Gewicht, Temperatur),
-schätzt daraus den Restzucker mit seiner Unsicherheit und sagt das Abfüllfenster voraus. Diese
-Sensorfusion steckt also nicht in einer Box, sondern in der Integration
+The boxes measure and regulate on site. The calculating happens in Home Assistant: the TIPSYLAB
+integration brings all sources of a batch together (measurements, hydrometer, bubbles, weight,
+temperature), estimates the residual sugar with its uncertainty and forecasts the bottling
+window. So this sensor fusion does not live in a box but in the integration
 ([`custom_components/tipsylab`](../custom_components/tipsylab)).
 
-Jede Box arbeitet auch ohne WLAN weiter: Die Gärbox zählt, die Tankbox hält den Druck, die
-Heizbox regelt auf den letzten Sollwert.
+Every box keeps working without WiFi: the Gärbox keeps counting, the Tankbox holds the pressure,
+the Heizbox regulates to the last set point.
 
-## Übersicht
+## Overview
 
-| Box | Wofür | Misst / schaltet | Software | Datei |
+| Box | For | Measures / switches | Software | File |
 |---|---|---|---|---|
-| [Gärbox](#gärbox) | jedes Gefäß mit Gärröhrchen | Blasen, Weintemperatur, optional Gewicht; zeigt BPM · DUB · ° | eigene Firmware (C++, PlatformIO) | [`gaerbox/`](gaerbox) |
-| [Waagebox](#waagebox) | Gewicht, wenn keine Gärbox am Gefäß hängt | Gewicht | ESPHome | [`esphome/waagebox.yaml`](esphome/waagebox.yaml) |
-| [Waage-Paket](#waage-paket) | Waage an einem ESP32, der schon ESPHome hat | Gewicht | ESPHome-Paket | [`esphome/pakete/waage.yaml`](esphome/pakete/waage.yaml) |
-| [Tankbox](#tankbox) | Charmat-Drucktank | Tankdruck, Weintemperatur; schaltet das Ablassventil | ESPHome | [`esphome/tankbox.yaml`](esphome/tankbox.yaml) |
-| [Flaschenbox](#flaschenbox) | die Messflasche nach dem Abfüllen | Druck und Temperatur der Flasche | ESPHome | [`esphome/flaschenbox.yaml`](esphome/flaschenbox.yaml) |
-| [Kellerluftbox](#kellerluftbox) | ein Raum | CO₂ in der Kellerluft, Temperatur, Feuchte, Luftdruck | ESPHome | [`esphome/kellerluftbox.yaml`](esphome/kellerluftbox.yaml) |
-| [Heizbox](#heizbox) | eine Heizmanschette | Weintemperatur; schaltet die Heizung | Shelly-Skript | [`heizbox/thermostat.js`](heizbox/thermostat.js) |
+| [Gärbox](#gärbox) | every vessel with an airlock | bubbles, wine temperature, optional weight; shows BPM · DUB · ° | own firmware (C++, PlatformIO) | [`gaerbox/`](gaerbox) |
+| [Waagebox](#waagebox) | weight, when no Gärbox sits on the vessel | weight | ESPHome | [`esphome/waagebox.yaml`](esphome/waagebox.yaml) |
+| [Scale package](#scale-package) | a scale on an ESP32 that already runs ESPHome | weight | ESPHome package | [`esphome/pakete/waage.yaml`](esphome/pakete/waage.yaml) |
+| [Tankbox](#tankbox) | Charmat pressure tank | tank pressure, wine temperature; switches the release valve | ESPHome | [`esphome/tankbox.yaml`](esphome/tankbox.yaml) |
+| [Flaschenbox](#flaschenbox) | the measurement bottle after bottling | pressure and temperature of the bottle | ESPHome | [`esphome/flaschenbox.yaml`](esphome/flaschenbox.yaml) |
+| [Kellerluftbox](#kellerluftbox) | one room | CO₂ in the cellar air, temperature, humidity, air pressure | ESPHome | [`esphome/kellerluftbox.yaml`](esphome/kellerluftbox.yaml) |
+| [Heizbox](#heizbox) | one heating jacket | wine temperature; switches the heater | Shelly script | [`heizbox/thermostat.js`](heizbox/thermostat.js) |
 
-Nicht von uns, aber unterstützt: jede Spindel, die einen Dichte-Sensor in Home Assistant liefert
-(z. B. iSpindel über das Nautilis iRelay). Sie wird im Ansatz als „Spindel“ eingetragen.
+Not ours, but supported: any hydrometer that provides a gravity sensor in Home Assistant (e.g. an
+iSpindel via the Nautilis iRelay). It is entered in the batch as the "hydrometer".
 
-## Welche Boxen für welchen Ansatz
+## Which boxes for which batch
 
-| Ansatz | nötig | sinnvoll |
+| Batch | needed | useful |
 |---|---|---|
-| Pet Nat oder Naturwein im **Ballon** | Gärbox | Waage unter dem Ballon (an der Gärbox); Spindel |
-| Pet Nat oder Naturwein im **Edelstahltank** mit Gärröhrchen | Gärbox | eine Wägezelle unter einem Bein (an der Gärbox oder als Waagebox); Heizbox, wenn der Tank eine Heizmanschette hat; Spindel |
-| **Pet Nat in der Flasche** | – | Flaschenbox an einer Messflasche (sonst Aphrometer und von Hand eintragen) |
-| **Charmat** im Drucktank | Tankbox | Heizbox |
-| der **Keller** | – | Kellerluftbox, eine pro Raum |
+| Pét-Nat or natural wine in a **demijohn** | Gärbox | scale under the demijohn (on the Gärbox); hydrometer |
+| Pét-Nat or natural wine in a **stainless steel tank** with an airlock | Gärbox | one load cell under one leg (on the Gärbox or as a Waagebox); Heizbox if the tank has a heating jacket; hydrometer |
+| **Pét-Nat in the bottle** | – | Flaschenbox on a measurement bottle (otherwise an aphrometer, entered by hand) |
+| **Charmat** in a pressure tank | Tankbox | Heizbox |
+| the **cellar** | – | Kellerluftbox, one per room |
 
-Gewicht, Blasen und Spindel ersetzen einander nicht, sie ergänzen sich: Die Integration gewichtet
-jede Quelle nach ihrer Unsicherheit. Am wichtigsten bleiben deine Messungen mit Refraktometer oder
-Dichtemeter; an ihnen eicht die Integration alle anderen Quellen.
+Weight, bubbles and hydrometer do not replace each other, they complement each other: the
+integration weights every source by its uncertainty. Your measurements with a refractometer or
+density meter remain the most important; the integration calibrates all other sources against
+them.
 
 ---
 
 ## Gärbox
 
-**Zweck:** sitzt am Gärröhrchen jedes Gefäßes. Zählt die Blasen, misst die Temperatur im Wein und
-zeigt auf dem Display die Blasen pro Minute (BPM), die Zeit bis zum Abfüllen (DUB) und die
-Temperatur. Mit Wägezelle wiegt sie das Gefäß mit.
+**Purpose:** sits on the airlock of every vessel. Counts the bubbles, measures the temperature in
+the wine and shows bubbles per minute (BPM), the time until bottling (DUB) and the temperature on
+its display. With a load cell it also weighs the vessel.
 
 **Hardware**
-- M5Stack AtomS3R (Nachfolger der AtomS3, die bei M5Stack ausläuft; eine vorhandene AtomS3 geht
-  auch, die AtomS3 Lite nicht: ihr fehlen Display und Bewegungssensor)
-- DS18B20 wasserdicht, in einer Tauchhülse im Wein; 4,7 kΩ zwischen Daten und 3,3 V
-- optional: HX711-Board und Wägezelle: unter dem Ballon eine Single-Point-Zelle unter einer
-  Platte; unter dem Tank eine Druck-Wägezelle oder ein Wägemodul für etwa 500 kg unter **einem**
-  Bein, die beiden anderen Beine auf harten Unterlagen gleicher Höhe (Stahl oder POM, kein Holz,
-  kein Gummi)
-- USB-C-Netzteil
+- M5Stack AtomS3R (successor of the AtomS3, which M5Stack is phasing out; an existing AtomS3 works
+  too, the AtomS3 Lite does not: it lacks the display and the motion sensor)
+- DS18B20, waterproof, in a thermowell in the wine; 4.7 kΩ between data and 3.3 V
+- optional: HX711 board and load cell: under a demijohn a single-point cell under a plate; under a
+  tank a compression load cell or a weigh module for about 500 kg under **one** leg, the other two
+  legs on rigid spacers of the same height (steel or POM, no wood, no rubber)
+- USB-C power supply
 
-**Anschluss:** DS18B20 an G2 (Grove); HX711 DT an G5, SCK an G6, VCC an 3V3.
+**Wiring:** DS18B20 on G2 (Grove); HX711 DT on G5, SCK on G6, VCC on 3V3.
 
-**Software:** eigene Firmware, [`gaerbox/`](gaerbox), bauen und flashen mit PlatformIO. Dort steht
-auch, wie man die Waage eicht und welches MQTT-Format die Box spricht.
+**Software:** own firmware, [`gaerbox/`](gaerbox), built and flashed with PlatformIO. That folder
+also explains how to calibrate the scale and which MQTT format the box speaks.
 
-**Einrichten:** Firmware flashen, WLAN und MQTT im Einrichtungsportal der Box eintragen, unter
-Einstellungen das Logo `assets/logo-atoms3-128.png` hochladen. Mit Waage: einmal eichen (Tara,
-Testgewicht auflegen – beim Tank mittig auf den Deckel –, eichen).
+**Setup:** flash the firmware, enter WiFi and MQTT in the box's setup portal, upload the logo
+`assets/logo-atoms3-128.png` under Settings. With a scale: calibrate once (tare, put on a test
+weight – on a tank in the middle of the lid –, calibrate).
 
-**In Home Assistant:** Im Ansatz die Geräte-ID der Box (steht auf dem Display, z. B. `tipsy-a1b2c3`)
-als „Blasenzähler“ eintragen. Temperatur und Gewicht kommen dann automatisch mit; ein eigener
-Eintrag ist nur nötig, wenn sie von einem anderen Sensor kommen sollen.
+**In Home Assistant:** enter the box's device ID (shown on the display, e.g. `tipsy-a1b2c3`) in
+the batch as the "bubble counter". Temperature and weight then come along automatically; a
+separate entry is only needed if they should come from another sensor.
 
 ## Waagebox
 
-**Zweck:** wiegt ein Gefäß, das keine Gärbox hat, oder wenn das Kabel vom Tankbein hinauf zum
-Gärröhrchen stört. Für die Gärung gilt dasselbe wie bei der Gärbox: Gewichtsverlust ist
-entwichenes CO₂.
+**Purpose:** weighs a vessel that has no Gärbox, or when the cable from the tank leg up to the
+airlock is in the way. For the fermentation the same applies as with the Gärbox: weight loss is
+escaped CO₂.
 
-**Hardware:** M5Stack AtomS3R (oder AtomS3), HX711-Board, Wägezelle wie bei der Gärbox, USB-C-Netzteil.
+**Hardware:** M5Stack AtomS3R (or AtomS3), HX711 board, load cell as for the Gärbox, USB-C power
+supply.
 
-**Anschluss:** HX711 DT an G5, SCK an G6, VCC an 3V3. Optional ein DS18B20 an G2 an der Wägezelle,
-um Temperaturdrift zu sehen (in der YAML auskommentiert).
+**Wiring:** HX711 DT on G5, SCK on G6, VCC on 3V3. Optionally a DS18B20 on G2 at the load cell, to
+see temperature drift (commented out in the YAML).
 
-**Software:** ESPHome, [`esphome/waagebox.yaml`](esphome/waagebox.yaml); die eigentliche Waage steckt
-im [Waage-Paket](#waage-paket).
+**Software:** ESPHome, [`esphome/waagebox.yaml`](esphome/waagebox.yaml); the scale itself lives
+in the [scale package](#scale-package).
 
-**Einrichten:** siehe [ESPHome-Boxen einrichten](#esphome-boxen-einrichten). Eichen in Home
-Assistant mit den Knöpfen „Waage Tara“, „Waage eichen“ und „Waage Inhalt setzen“.
+**Setup:** see [Setting up the ESPHome boxes](#setting-up-the-esphome-boxes). Calibrate in Home
+Assistant with the buttons "Waage Tara" (tare), "Waage eichen" (calibrate) and "Waage Inhalt
+setzen" (set content).
 
-**In Home Assistant:** den Sensor „Gewicht“ im Ansatz als „Waage“ eintragen.
+**In Home Assistant:** enter the sensor "Gewicht" (weight) in the batch as the "scale".
 
-## Waage-Paket
+## Scale package
 
-**Zweck:** dieselbe Waage für einen ESP32, der schon mit ESPHome läuft, etwa die Kellerluftbox
-oder ein eigenes Gerät. In dessen YAML einfügen (Pins anpassen):
+**Purpose:** the same scale for an ESP32 that already runs ESPHome, such as the Kellerluftbox or a
+device of your own. Add this to its YAML (adjust the pins):
 
 ```yaml
 packages:
@@ -102,136 +104,144 @@ packages:
       sck_pin: GPIO6
 ```
 
-Das Paket bringt den Sensor „Gewicht“, die Eich-Knöpfe und das Testgewicht mit.
+The package brings the sensor "Gewicht" (weight), the calibration buttons and the test weight.
 
 ## Tankbox
 
-**Zweck:** hält einen Charmat-Drucktank auf dem Druck, der in der Flasche beim Öffnen bei 20 °C
-den Zieldruck ergibt. Home Assistant schickt nur das CO₂-Ziel; den Sollwert für die aktuelle
-Tanktemperatur rechnet die Box selbst und regelt ohne WLAN weiter. Beim Abkühlen folgt der
-Sollwert langsam nach, damit kein CO₂ abgelassen wird, das sich gerade im Wein löst.
+**Purpose:** holds a Charmat pressure tank at the pressure that gives the target pressure in the
+bottle when it is opened at 20 °C. Home Assistant only sends the CO₂ target; the box calculates
+the set point for the current tank temperature itself and keeps regulating without WiFi. When the
+tank cools down, the set point follows slowly, so that no CO₂ is released that is just dissolving
+in the wine.
 
 **Hardware**
-- M5Stack AtomS3R (oder AtomS3), ADS1115-Modul (auf 3,3 V)
-- der vorhandene Drucktransmitter, 0,5–4,5 V, über einen Spannungsteiler 10 kΩ/20 kΩ an A0
-- DS18B20 in einer Tauchhülse im Wein
-- Magnetventil 12 V, **stromlos geschlossen** und **direktgesteuert**, Edelstahl, kleine Düse;
-  Logik-MOSFET mit Freilaufdiode; 12-V-Netzteil
-- ein **mechanisches Sicherheitsventil** unter der Zulassung des Tanks: Pflicht, die Regelung
-  ersetzt es nie
+- M5Stack AtomS3R (or AtomS3), ADS1115 module (at 3.3 V)
+- the existing pressure transmitter, 0.5–4.5 V, via a 10 kΩ/20 kΩ voltage divider to A0
+- DS18B20 in a thermowell in the wine
+- 12 V solenoid valve, **normally closed** and **direct-acting**, stainless steel, small orifice;
+  logic-level MOSFET with flyback diode; 12 V power supply
+- a **mechanical safety valve** within the rating of the tank: mandatory, the control never
+  replaces it
 
-**Anschluss:** ADS1115 an Grove (G2 SDA, G1 SCL); DS18B20 an G6; MOSFET-Gate über 220 Ω an G5.
-Sensor und Ventil sitzen oben im Gasraum, nie im Wein.
+**Wiring:** ADS1115 on Grove (G2 SDA, G1 SCL); DS18B20 on G6; MOSFET gate via 220 Ω on G5. Sensor
+and valve sit at the top in the headspace, never in the wine.
 
 **Software:** ESPHome, [`esphome/tankbox.yaml`](esphome/tankbox.yaml).
 
-**In Home Assistant:** Charmat-Ansatz anlegen; „Tankdruck“ und „Weintemperatur“ der Box als
-Quellen, die Zahl „CO₂-Ziel“ als Regler eintragen, das Sicherheitsventil im Ziel angeben.
+**In Home Assistant:** create a Charmat batch; enter the box's "Tankdruck" (tank pressure) and
+"Weintemperatur" (wine temperature) as sources and its number "CO₂-Ziel" (CO₂ target) as the
+controller, and give the safety valve in the target.
 
 ## Flaschenbox
 
-**Zweck:** misst den Druck in einer Messflasche, solange der Pet Nat in der Flasche gärt: ein
-eigenes e-aphrom. Die Integration rechnet den Druck auf 20 °C um, vergleicht ihn mit dem Druck bei
-vollständiger Vergärung und meldet, wenn er höher steigt („auf 0–2 °C kühlen“). Ist die Flasche
-durchgegoren, eicht sie beim Abschließen des Ansatzes das Druckmodell für die nächsten Ansätze.
+**Purpose:** measures the pressure in a measurement bottle while the Pét-Nat ferments in the
+bottle: your own e-aphrometer. The integration converts the pressure to 20 °C, compares it with
+the pressure at complete fermentation and warns when it rises higher ("chill to 0–2 °C"). Once the
+bottle has fermented to dryness, closing the batch uses it to calibrate the pressure model for the
+next batches.
 
 **Hardware**
-- M5Stack AtomS3R (oder AtomS3), ADS1115-Modul (auf 3,3 V)
-- Drucktransmitter 0–10 bar, 0,5–4,5 V, Edelstahl, G1/4, über einen Spannungsteiler 10 kΩ/20 kΩ an A0
-- Kronkorken-Adapter mit Durchführung (wie bei Aphrometern) für denselben Kronkorken wie die anderen
-  Flaschen
-- DS18B20 außen an der Flasche, mit Wärmeleitpaste
+- M5Stack AtomS3R (or AtomS3), ADS1115 module (at 3.3 V)
+- pressure transmitter 0–10 bar, 0.5–4.5 V, stainless steel, G1/4, via a 10 kΩ/20 kΩ voltage
+  divider to A0
+- crown-cap adapter with a feed-through (as on aphrometers) for the same crown cap as the other
+  bottles
+- DS18B20 on the outside of the bottle, with thermal paste
 
-**Anschluss:** wie die Tankbox ohne Ventil: ADS1115 an Grove (G2 SDA, G1 SCL), DS18B20 an G6.
+**Wiring:** like the Tankbox without the valve: ADS1115 on Grove (G2 SDA, G1 SCL), DS18B20 on G6.
 
-**Sicherheit:** Transmitter, Adapter und Kronkorken müssen den Grenzdruck der Flasche aushalten
-(750 ml: 6 bar, 330 ml: 4,5 bar). Den Adapter nur mit Schutzbrille aufsetzen und abnehmen.
+**Safety:** transmitter, adapter and crown cap must withstand the limit pressure of the bottle
+(750 ml: 6 bar, 330 ml: 4.5 bar). Only put the adapter on and take it off with safety glasses.
 
 **Software:** ESPHome, [`esphome/flaschenbox.yaml`](esphome/flaschenbox.yaml).
 
-**In Home Assistant:** im Pet-Nat-Ansatz unter „Neu konfigurieren“ die Sensoren „Flaschendruck“
-und „Flaschentemperatur“ als „Messflasche: Druck“ und „Messflasche: Temperatur“ eintragen. Ohne
-Flaschenbox geht es auch: das Aphrometer ablesen und unter „Messung → Flaschendruck“ eintragen.
+**In Home Assistant:** in the Pét-Nat batch, under "Reconfigure", enter the sensors
+"Flaschendruck" (bottle pressure) and "Flaschentemperatur" (bottle temperature) as "Measurement
+bottle: pressure" and "Measurement bottle: temperature". It also works without a Flaschenbox: read
+the aphrometer and enter the value under "Measure → Bottle pressure".
 
 ## Kellerluftbox
 
-**Zweck:** misst CO₂ in der Kellerluft. Gär-CO₂ ist schwerer als Luft und sammelt sich am Boden;
-ab 5.000 ppm (Arbeitsplatzgrenzwert) gibt es Alarm. Dazu Temperatur, Feuchte und Luftdruck.
-Tief montieren, etwa 30 cm über dem Boden. Nebenbei ist sie Bluetooth-Proxy: Sie empfängt
-Spindeln mit Bluetooth (RAPT Pill, Tilt) im Keller und reicht sie an Home Assistant weiter.
+**Purpose:** measures CO₂ in the cellar air. Fermentation CO₂ is heavier than air and collects at
+the floor; from 5,000 ppm (the occupational exposure limit) there is an alarm. Plus temperature,
+humidity and air pressure. Mount it low, about 30 cm above the floor. On the side it is a
+Bluetooth proxy: it receives Bluetooth hydrometers (RAPT Pill, Tilt) in the cellar and passes them
+on to Home Assistant.
 
-**Hardware:** M5Stack AtomS3 Lite (die Box braucht kein Display; AtomS3R oder AtomS3 gehen auch),
-Grove-Hub, Sensirion SCD41 (CO₂), M5 ENV IV (SHT40 und BMP280).
+**Hardware:** M5Stack AtomS3 Lite (the box needs no display; an AtomS3R or AtomS3 works too), Grove
+hub, Sensirion SCD41 (CO₂), M5 ENV IV (SHT40 and BMP280).
 
-**Anschluss:** alles über Grove (I²C, G2 SDA, G1 SCL).
+**Wiring:** everything via Grove (I²C, G2 SDA, G1 SCL).
 
 **Software:** ESPHome, [`esphome/kellerluftbox.yaml`](esphome/kellerluftbox.yaml).
 
-**In Home Assistant:** die Sensoren „CO₂ lüften“ und „CO₂ Alarm“ in den Blueprint „Alarm aufs
-Handy“ eintragen. Alle paar Monate an der frischen Luft „CO₂ an Frischluft kalibrieren“ drücken.
-Eine RAPT Pill (in der RAPT-App auf Bluetooth gestellt) taucht danach unter „Entdeckt“ auf
-(Integration „RAPT Bluetooth“); ihre Dichte dann im Ansatz als Spindel eintragen, Einheit SG.
-Den Proxy nicht in die Tankbox setzen: Die regelt das Ventil und soll nichts anderes tun.
+**In Home Assistant:** enter the sensors "CO₂ lüften" (ventilate) and "CO₂ Alarm" in the blueprint
+"TIPSYLAB · Alarm aufs Handy". Every few months, press "CO₂ an Frischluft kalibrieren" (calibrate
+in fresh air) out in the open. A RAPT Pill (set to Bluetooth in the RAPT app) then shows up under
+"Discovered" (integration "RAPT Bluetooth"); enter its gravity in the batch as the hydrometer,
+unit SG. Do not put the proxy into the Tankbox: it drives the valve and should do nothing else.
 
 ## Heizbox
 
-**Zweck:** regelt eine Heizmanschette auf die Solltemperatur aus dem Temperaturplan des Ansatzes.
-Geregelt wird auf dem Shelly; fällt Home Assistant aus, gilt der letzte Sollwert. Über 26 °C oder
-ohne Fühler ist die Heizung aus; bleibt das Skript stehen, schaltet sie nach zwei Minuten ab.
+**Purpose:** regulates a heating jacket to the set temperature from the batch's temperature plan.
+The regulation runs on the Shelly; if Home Assistant fails, the last set point applies. Above
+26 °C or without a probe the heater is off; if the script stops, it switches off after two
+minutes.
 
-**Hardware:** Shelly 1PM Gen3 oder Gen4, Shelly Plus Add-on, DS18B20 in einer Tauchhülse im Wein.
-Die Heizmanschette hängt an 230 V: **Anschluss durch eine Elektrofachkraft.**
+**Hardware:** Shelly 1PM Gen3 or Gen4, Shelly Plus Add-on, DS18B20 in a thermowell in the wine.
+The heating jacket runs on 230 V: **wiring by a qualified electrician.**
 
-**Software:** Shelly-Skript, [`heizbox/thermostat.js`](heizbox/thermostat.js).
+**Software:** Shelly script, [`heizbox/thermostat.js`](heizbox/thermostat.js).
 
-**Einrichten:** in der Shelly-Weboberfläche den Fühler unter Add-on als Temperatur 100 anlegen,
-unter Scripts das Skript einfügen, „Run on startup“ einschalten, starten. Den Passwortschutz des
-Shelly ausgeschaltet lassen: Die Integration schreibt den Sollwert ohne Anmeldung.
+**Setup:** in the Shelly web interface, add the probe under Add-on as temperature 100, paste the
+script under Scripts, switch on "Run on startup" and start it. Leave the Shelly's password
+protection off: the integration writes the set point without logging in.
 
-**In Home Assistant:** die IP-Adresse des Shelly im Ansatz als „Heizung“ eintragen.
+**In Home Assistant:** enter the IP address of the Shelly in the batch as the "heater".
 
 ---
 
-## ESPHome-Boxen einrichten
+## Setting up the ESPHome boxes
 
-Alle ESPHome-Boxen teilen sich eine `secrets.yaml` im Ordner [`esphome/`](esphome):
+All ESPHome boxes share one `secrets.yaml` in the [`esphome/`](esphome) folder:
 
 ```bash
 cd boxen/esphome
-cp secrets.yaml.example secrets.yaml     # WLAN, Einrichtungs-Passwort, API-Schlüssel eintragen
-esphome run tankbox.yaml                 # erstes Mal per USB, danach über WLAN
+cp secrets.yaml.example secrets.yaml     # enter WiFi, setup password, API key
+esphome run tankbox.yaml                 # first time via USB, then over WiFi
 ```
 
-Im ESPHome-Dashboard von Home Assistant: die YAML-Datei und den Ordner `pakete/` in den
-ESPHome-Ordner kopieren und dort die vorhandene `secrets.yaml` um `ap_password` und
-`api_encryption_key` ergänzen.
+In the ESPHome dashboard of Home Assistant: copy the YAML file and the `pakete/` folder into the
+ESPHome folder and add `ap_password` and `api_encryption_key` to the existing `secrets.yaml`
+there.
 
-**Welches Board:** Tank-, Waage- und Flaschenbox holen Display, Licht und Pins aus einem
-Board-Paket, oben in der YAML unter `packages: board:`.
+**Which board:** the Tankbox, Waagebox and Flaschenbox take display, light and pins from a board
+package, at the top of the YAML under `packages: board:`.
 
-| Gerät | Paket |
+| Device | Package |
 |---|---|
-| AtomS3R ab Mai 2026, Display ST7735 (Standard) | `pakete/board-atoms3r.yaml` |
-| frühe AtomS3R, Display GC9107 | `pakete/board-atoms3r-gc9107.yaml` |
-| AtomS3 (Vorgänger) | `pakete/board-atoms3.yaml` |
+| AtomS3R from May 2026, ST7735 display (default) | `pakete/board-atoms3r.yaml` |
+| early AtomS3R, GC9107 display | `pakete/board-atoms3r-gc9107.yaml` |
+| AtomS3 (predecessor) | `pakete/board-atoms3.yaml` |
 
-Welches Display eine AtomS3R hat, steht im Startlog der Gärbox-Firmware; sonst probieren: Bleibt
-das Bild schwarz oder verrauscht, das andere Paket nehmen. Die Kellerluftbox braucht kein Paket.
+The boot log of the Gärbox firmware tells you which display an AtomS3R has; otherwise just try:
+if the screen stays black or noisy, take the other package. The Kellerluftbox needs no package.
 
-Die Displays sind am Gerät noch nicht geprüft. Ist das Bild verschoben oder gedreht, im
-Board-Paket Versatz und Drehung anpassen; sind die Farben vertauscht, `invert_colors` umschalten
-(bei der ST7735 vertauschte Rot/Blau: `use_bgr: true`).
+The displays have not been checked on a device yet. If the image is shifted or rotated, adjust
+offset and rotation in the board package; if the colours are swapped, toggle `invert_colors` (on
+the ST7735 with red and blue swapped: `use_bgr: true`).
 
-## Im Keller: Feuchte, Spritzwasser, Gehäuse
+## In the cellar: humidity, splashes, enclosures
 
-- **Boxen am Tank und in Bodennähe** (Tank-, Waage-, Flaschenbox): in eine IP65-Abzweigdose aus
-  Polycarbonat mit durchsichtigem Deckel, Kabel durch Kabelverschraubungen, dazu ein
-  Druckausgleichselement (Membran). Ohne den Ausgleich pumpt jeder Temperaturwechsel feuchte Luft
-  hinein, die drinnen kondensiert.
-- **Gärbox:** leicht lassen. Sie zählt die Blasen über ihren Bewegungssensor; ein schweres oder
-  steifes Gehäuse dämpft genau dieses Signal. Kein Metall: Es schirmt das WLAN ab. Gegen Spritzer
-  reicht eine dünne Hülle.
-- **Kellerluftbox:** Die Sensoren brauchen Luft, also nicht dicht einbauen; tief, aber außerhalb
-  des Spritzbereichs der Bodenreinigung montieren.
-- **Edelstahl gehört an den Wein, nicht um die Elektronik:** Fühler in Edelstahl-Tauchhülsen.
-- **Netzteile** außerhalb des Nassbereichs, Steckdosen hinter einem FI-Schutzschalter.
+- **Boxes at the tank and near the floor** (Tankbox, Waagebox, Flaschenbox): in an IP65 junction
+  box made of polycarbonate with a clear lid, cables through cable glands, plus a pressure
+  equalisation element (membrane). Without it, every change in temperature pumps humid air in,
+  which condenses inside.
+- **Gärbox:** keep it light. It counts the bubbles with its motion sensor; a heavy or stiff
+  enclosure dampens exactly that signal. No metal: it shields the WiFi. A thin cover is enough
+  against splashes.
+- **Kellerluftbox:** the sensors need air, so do not seal it in; mount it low, but out of reach of
+  the spray when the floor is cleaned.
+- **Stainless steel belongs on the wine, not around the electronics:** probes in stainless steel
+  thermowells.
+- **Power supplies** outside the wet area, sockets behind a residual-current device (RCD).

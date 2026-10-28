@@ -1,158 +1,181 @@
 # TIPSYLAB
 
-Gärüberwachung für Tipsy Wines: wann ein Pet Nat in die Flasche muss, wann ein Naturwein durch
-ist und welcher Druck im Charmat-Tank gehalten werden soll.
+Fermentation monitoring for small natural-wine cellars: when a Pét-Nat has to go into the
+bottle, when a still wine is dry, and which pressure a Charmat tank should hold. Built by
+Tipsy Wines (Ovar, Portugal) on Home Assistant, with small sensor boxes on every vessel.
 
-TIPSYLAB besteht aus zwei Teilen:
+> **Experimental: some of this has not run on real hardware yet.** The integration and the
+> forecast are tested against a simulator; some of the box firmwares and the Shelly script have
+> not run on devices (see [Status](#status)). TIPSYLAB deals with pressure in bottles and tanks
+> and with mains-powered heaters: read [Safety](#safety) first, keep every mechanical safety
+> device, and check every bottling with a measurement bottle. Use at your own risk.
 
-- **Die Home-Assistant-Integration** ([`custom_components/tipsylab`](custom_components/tipsylab))
-  ist das Gehirn. Sie sammelt für jeden Ansatz alle Quellen ein (deine Messungen, Spindel,
-  Blasen, Gewicht, Temperatur), führt sie zu einem Restzucker mit Unsicherheit zusammen, sagt das
-  Abfüllfenster voraus und rechnet den Druck in der Flasche. Nach dem Abfüllen wacht sie über die
-  Messflasche und lernt aus jedem abgeschlossenen Ansatz. Dazu gehört das Panel „TIPSYLAB“ in der
-  Seitenleiste, am Handy, Tablet oder PC.
-- **Die Boxen** ([`boxen/`](boxen)) sitzen an Gefäßen, Tanks und im Keller. Sie messen, zeigen
-  das Nötigste an und regeln vor Ort, auch ohne WLAN.
+**Season 2027:** we are moving from Portugal to the Bordeaux area and will extend TIPSYLAB there.
+If you are interested in setting up a system around Bordeaux, write to tipsylab@tipsy.pt; we can
+help you set one up, too. More data = more reliability.
+
+The panel and notifications speak English, French and German. The detailed plan in
+[`docs/`](docs/PLAN-Abfuellzeitpunkt.md) is in German.
+
+TIPSYLAB has two parts:
+
+- **The Home Assistant integration** ([`custom_components/tipsylab`](custom_components/tipsylab))
+  is the brain. For every batch it collects all sources (your measurements, hydrometer, bubbles,
+  weight, temperature), fuses them into a residual sugar with its uncertainty, forecasts the
+  bottling window and calculates the pressure in the bottle. After bottling it watches the
+  measurement bottle and learns from every finished batch. It comes with the "TIPSYLAB" panel in
+  the sidebar, on phone, tablet or PC.
+- **The boxes** ([`boxen/`](boxen)) sit on vessels, tanks and in the cellar. They measure, show
+  what matters and regulate on site, even without WiFi.
 
 ```
- BOXEN (vor Ort)                     HOME ASSISTANT                         ANZEIGE
- Gärbox    Blasen · ° · Gewicht ─┐
-           zeigt BPM · DUB · ° ◄─┤   TIPSYLAB-Integration                   Panel TIPSYLAB
- Waagebox  Gewicht ──────────────┤    Sensorfusion: Restzucker ± σ  ───►    Heute · Messung
- Spindel   Dichte ───────────────┤    Prognose: Abfüllfenster, DUB          Ziel · Tank
- Tankbox   Druck · ° ────────────┤    Druck beim Öffnen, Flaschengrenze
-           regelt das Ventil ◄───┤    Temperaturplan, CO₂-Ziel              Handy: Blueprints
- Heizbox   ° · regelt Heizung ◄──┤    Messflasche, Archiv, Hauswerte        für Fenster und Alarme
- Flaschenbox  Druck · ° ─────────┤
- Kellerluftbox  CO₂ · Klima ─────┘
+ BOXES (on site)                       HOME ASSISTANT                          DISPLAY
+ Gärbox      bubbles · ° · weight ─┐
+             shows BPM · DUB · ° ◄─┤   TIPSYLAB integration                    TIPSYLAB panel
+ Waagebox    weight ───────────────┤    fusion: residual sugar ± σ  ───►       Today · Measure
+ Hydrometer  density ──────────────┤    forecast: bottling window, DUB         Target · Tank
+ Tankbox     pressure · ° ─────────┤    pressure at opening, bottle limit
+             drives the valve ◄────┤    temperature plan, CO₂ target           phone: blueprints
+ Heizbox     ° · drives heater ◄───┤    measurement bottle, archive,           for window and alarms
+ Flaschenbox    pressure · ° ──────┤    house values
+ Kellerluftbox  CO₂ · climate ─────┘
 ```
 
-## Die Teile
+## The parts
 
-| Teil | Was es ist | Software | Ordner |
+| Part | What it is | Software | Folder |
 |---|---|---|---|
-| **Integration** | rechnet und speichert; Panel | Python, Home-Assistant-Integration | [`custom_components/tipsylab`](custom_components/tipsylab) |
-| **Gärbox** | AtomS3R am Gärröhrchen: Blasen, Weintemperatur, optional Gewicht | eigene Firmware (PlatformIO) | [`boxen/gaerbox`](boxen/gaerbox) |
-| **Waagebox** | AtomS3R mit Wägezelle, für Gefäße ohne Gärbox; auch als Paket für jeden ESPHome-ESP32 | ESPHome | [`boxen/esphome`](boxen/esphome) |
-| **Tankbox** | Charmat: Druck halten, Ventil regeln | ESPHome | [`boxen/esphome`](boxen/esphome) |
-| **Flaschenbox** | Druck in der Messflasche nach dem Abfüllen | ESPHome | [`boxen/esphome`](boxen/esphome) |
-| **Kellerluftbox** | CO₂ und Klima im Keller | ESPHome | [`boxen/esphome`](boxen/esphome) |
-| **Heizbox** | Shelly an der Heizmanschette | Shelly-Skript | [`boxen/heizbox`](boxen/heizbox) |
-| **Benachrichtigungen** | Abfüllfenster und Alarme aufs Handy | Blueprints | [`blueprints/automation/tipsylab`](blueprints/automation/tipsylab) |
-| **DataWein-Feed** | echte Zahlen auf der Website, ohne Home Assistant ins Internet zu stellen | Blueprint, PHP, JavaScript | [`website/datawein`](website/datawein) |
+| **Integration** | calculates and stores; panel | Python, Home Assistant integration | [`custom_components/tipsylab`](custom_components/tipsylab) |
+| **Gärbox** (fermentation box) | AtomS3R on the airlock: bubbles, wine temperature, optional weight | own firmware (PlatformIO) | [`boxen/gaerbox`](boxen/gaerbox) |
+| **Waagebox** (scale box) | AtomS3R with a load cell, for vessels without a Gärbox; also as a package for any ESPHome ESP32 | ESPHome | [`boxen/esphome`](boxen/esphome) |
+| **Tankbox** | Charmat: holds the pressure, drives the valve | ESPHome | [`boxen/esphome`](boxen/esphome) |
+| **Flaschenbox** (bottle box) | pressure in the measurement bottle after bottling | ESPHome | [`boxen/esphome`](boxen/esphome) |
+| **Kellerluftbox** (cellar air box) | CO₂ and climate in the cellar | ESPHome | [`boxen/esphome`](boxen/esphome) |
+| **Heizbox** (heater box) | Shelly on the heating jacket | Shelly script | [`boxen/heizbox`](boxen/heizbox) |
+| **Notifications** | bottling window and alarms on your phone | blueprints | [`blueprints/automation/tipsylab`](blueprints/automation/tipsylab) |
+| **DataWein feed** | real numbers on the website, without exposing Home Assistant to the internet | blueprint, PHP, JavaScript | [`website/datawein`](website/datawein) |
 
-Welche Box wofür, Einkaufslisten, Anschlüsse und Einrichtung: **[boxen/README.md](boxen/README.md)**.
-Hintergrund, Physik und Entscheidungen: [docs/PLAN-Abfuellzeitpunkt.md](docs/PLAN-Abfuellzeitpunkt.md).
+Which box for what, shopping lists, wiring and setup: **[boxen/README.md](boxen/README.md)**.
+Background, physics and decisions (in German): [docs/PLAN-Abfuellzeitpunkt.md](docs/PLAN-Abfuellzeitpunkt.md).
 
-## Was die Integration rechnet
+## What the integration calculates
 
-- **Pet Nat:** Restzucker aus Refraktometer, Dichte oder Labor, fortgeschrieben mit Spindel,
-  Blasen und Gewicht. Die Prognose rechnet in thermischer Zeit, so dass Kühlen und
-  Temperaturplan das Fenster verschieben, und streut per Monte Carlo Restzucker, Gärrate, Q10 und
-  Kellertemperatur: Das Fenster ist P10–P90, im Simulator geeicht. Eine Messung wird empfohlen, wenn
-  sie das Fenster deutlich enger macht. Ergebnis: Abfüllfenster mit Unsicherheit, DUB, Druck
-  beim Öffnen bei 10 und 20 °C, Prüfung der Flaschengrenze im ungünstigen Fall (330 ml 4,5 bar,
-  750 ml 6 bar), Malo in der Flasche als Option, Alkohol in der Flasche mit Unsicherheit und
-  Etikettwert.
-- **Naturwein:** Zeit bis trocken, Warnung bei stockender Gärung, Alkohol fürs Etikett.
-- **Nach dem Abfüllen:** „Abgefüllt“ hält den Restzucker fest, schaltet die Heizung aus und zeigt
-  den erwarteten Öffnungsdruck. Die Messflasche (Aphrometer oder Flaschenbox) wird auf 20 °C
-  umgerechnet; steigt sie über den erwarteten Druck, gibt es Alarm mit Handlung („auf 0–2 °C
-  kühlen“). „Ansatz abschließen“ legt ihn ins Archiv: mit Nachkalkulation der Prognose und den
-  Hauswerten, die neue Ansätze nutzen (CO₂ beim Abfüllen aus der Messflasche, Zucker je % vol aus
-  Laborwerten, Blasen je g CO₂ je Gärbox und Versatz je Spindel).
-- **Charmat:** CO₂-Ziel und Tank-Sollwert aus dem Flaschenziel; die Tankbox regelt danach.
-- **Gewicht:** Gewichtsverlust ist entwichenes CO₂. Mit dem Volumen ergibt das den vergorenen
-  Zucker direkt; liegen Messungen im Verlauf, wird an ihnen geeicht. Gelöstes CO₂ und Proben
-  rechnet die Integration heraus. Unter einem Tank mit drei Beinen reicht eine Wägezelle.
-- **Quellen im Blick:** „Quelle stumm“, wenn Spindel, Gärbox, Waage, Fühler oder Messflasche
-  seit über 3 h nichts schicken; „Akku schwach“ unter 20 % bei Geräten mit Akku, etwa einer RAPT
-  Pill. Beides mit Handlung für die Benachrichtigung.
+- **Pét-Nat:** residual sugar from refractometer, density or lab values, carried forward with
+  hydrometer, bubbles and weight. The forecast runs in thermal time, so cooling and the
+  temperature plan shift the window, and it varies residual sugar, fermentation rate, Q10 and
+  cellar temperature by Monte Carlo: the window is P10–P90, calibrated in the simulator. A
+  measurement is recommended when it would make the window noticeably narrower. Result: bottling
+  window with uncertainty, DUB, pressure at opening at 10 and 20 °C, a check of the bottle limit
+  in the worst case (330 ml 4.5 bar, 750 ml 6 bar), malolactic in the bottle as an option, alcohol
+  in the bottle with uncertainty and the value for the label.
+- **Natural wine (still):** time until dry, a warning when the fermentation stalls, alcohol for
+  the label.
+- **After bottling:** "Bottled" freezes the residual sugar, switches the heater off and shows the
+  expected opening pressure. The measurement bottle (aphrometer or Flaschenbox) is converted to
+  20 °C; if it rises above the expected pressure, there is an alarm with an action ("chill to
+  0–2 °C"). "Close batch" moves it to the archive, with a post-calculation of the forecast and the
+  house values that new batches use (CO₂ at bottling from the measurement bottle, sugar per % vol
+  from lab values, bubbles per g CO₂ for each Gärbox and the offset of each hydrometer).
+- **Charmat:** CO₂ target and tank set point from the bottle target; the Tankbox regulates from
+  there.
+- **Weight:** weight loss is escaped CO₂. With the volume this gives the fermented sugar directly;
+  when there are measurements along the way, it is calibrated against them. The integration takes
+  dissolved CO₂ and samples into account. Under a tank with three legs one load cell is enough.
+- **Sources in view:** "Source silent" when a hydrometer, Gärbox, scale, probe or measurement
+  bottle has sent nothing for over 3 h; "Battery low" below 20 % on devices with a battery, such
+  as a RAPT Pill. Both come with an action for the notification.
 
-## Einrichten
+## Setup
 
-Das Repo ist privat. HACS und der Blueprint-Import per Link brauchen ein öffentliches Repo; solange
-es privat bleibt, die Ordner von Hand kopieren: `custom_components/tipsylab` nach
-`/config/custom_components/` und `blueprints/automation/tipsylab` nach `/config/blueprints/automation/`.
+Install with HACS, or copy the folders by hand: `custom_components/tipsylab` to
+`/config/custom_components/` and `blueprints/automation/tipsylab` to `/config/blueprints/automation/`.
 
-1. **Integration:** HACS → Benutzerdefinierte Repositories → `https://github.com/studioanarc/tipsylab`,
-   Typ Integration → TIPSYLAB installieren (ohne HACS: `custom_components/tipsylab` in den
-   gleichnamigen Ordner der Home-Assistant-Konfiguration kopieren). Home Assistant ab 2025.8
-   neu starten (getestet mit 2026.2). Für Gärbox und Display braucht es die MQTT-Integration.
-2. **Boxen** aufbauen und einrichten: [boxen/README.md](boxen/README.md).
-3. **Ansatz anlegen:** Einstellungen → Geräte & Dienste → Integration hinzufügen → TIPSYLAB. Jeder
-   Ansatz ist ein Eintrag: Name, Betriebsart, Start-Brix oder Startdichte, Volumen, dann die
-   Quellen (Gärbox-ID, Spindel, Temperatur, Waage, Shelly, beim Charmat Tankdruck und CO₂-Ziel),
-   dann das Ziel. Quellen lassen sich später über „Neu konfigurieren“ ändern, etwa um eine Waage
-   nachzurüsten; Messungen bleiben dabei erhalten. Als Spindel taugt jede Dichte-Entität: iSpindel
-   oder GravityMon, die RAPT Pill über die Integration „RAPT Bluetooth“, ein Tilt über „Tilt
-   Hydrometer BLE“ (Einheit jeweils SG). Im Keller empfängt die Kellerluftbox sie als
-   Bluetooth-Proxy; die RAPT Pill dafür in der RAPT-App auf Bluetooth stellen.
-4. **Panel** „TIPSYLAB“ in der Seitenleiste: Messungen eintragen, Ziel einstellen. Dieselben Services
-   (`tipsylab.add_measurement`, `add_event`, `update_settings`) gibt es für Automationen. Das Panel
-   spricht die Sprache von Home Assistant; unten lässt es sich auf Deutsch, Französisch oder
-   Englisch umstellen (gilt für diesen Browser). Entitäten, Einrichtung und Handlungen in den
-   Benachrichtigungen folgen der Sprache des Servers.
-5. **Benachrichtigungen:** Einstellungen → Automationen → Blueprints → Blueprint importieren:
+1. **Integration:** HACS → Custom repositories → `https://github.com/studioanarc/tipsylab`, type
+   Integration → install TIPSYLAB (without HACS: copy `custom_components/tipsylab` into the folder
+   of the same name in your Home Assistant configuration). Restart Home Assistant 2025.8 or newer
+   (tested with 2026.2). The Gärbox and its display need the MQTT integration.
+2. **Boxes:** build and set them up: [boxen/README.md](boxen/README.md).
+3. **Create a batch:** Settings → Devices & services → Add integration → TIPSYLAB. Every batch is
+   one entry: name, mode, starting Brix or starting gravity, volume, then the sources (Gärbox ID,
+   hydrometer, temperature, scale, Shelly; for Charmat the tank pressure and the CO₂ target), then
+   the target. Sources can be changed later with "Reconfigure", for example to add a scale;
+   measurements are kept. Any gravity entity works as a hydrometer: iSpindel or GravityMon, the
+   RAPT Pill via the "RAPT Bluetooth" integration, a Tilt via "Tilt Hydrometer BLE" (unit SG in
+   each case). In the cellar the Kellerluftbox receives them as a Bluetooth proxy; set the RAPT
+   Pill to Bluetooth in the RAPT app.
+4. **Panel** "TIPSYLAB" in the sidebar: enter measurements, set the target. The same services
+   (`tipsylab.add_measurement`, `add_event`, `update_settings`) are available for automations. The
+   panel follows the language of Home Assistant; at the bottom it can be switched to German,
+   French or English (for this browser). Entities, setup and the actions in notifications follow
+   the language of the server.
+5. **Notifications:** Settings → Automations & scenes → Blueprints → Import blueprint:
    - `https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/abfuellfenster.yaml`
    - `https://github.com/studioanarc/tipsylab/blob/main/blueprints/automation/tipsylab/alarm.yaml`
 
-   In beiden die Sprache der Nachricht wählen. In „Alarm aufs Handy“ neben den Alarmen der Boxen
-   auch „Quelle stumm“ und „Akku schwach“ der Ansätze eintragen.
+   In both, choose the language of the message. In "TIPSYLAB · Alarm aufs Handy" (alarm to your
+   phone), add the batches' "Source silent" and "Battery low" next to the alarms of the boxes.
 
-## Sicherheit
+## Safety
 
-- **Charmat:** Ein mechanisches Sicherheitsventil unter der Zulassung des Tanks ist Pflicht; die
-  Regelung ersetzt es nie. Der Sollwert bleibt mindestens 0,3 bar darunter. Das Magnetventil ist
-  stromlos geschlossen und direktgesteuert; bei einem Sensorfehler bleibt es zu.
-- **Heizung:** aus über 26 °C und ohne Fühlerwert, auch ohne Home Assistant; bleibt das Skript
-  stehen, schaltet der Shelly nach zwei Minuten ab. 230 V nur durch eine Elektrofachkraft.
-- **Druck in der Flasche:** gerechnet für die vollständige Vergärung des Restzuckers. Ohne eigene
-  Messflaschen liegt das Modell bis etwa ±0,8 bar daneben, geeicht etwa ±0,3 bar (Plan 2.9).
-  Jede Abfüllung mit einer Messflasche und einem Aphrometer prüfen.
-- **Waage unter dem Tank:** Wägezelle mit Sicherung gegen Verrutschen; da steht fast eine Tonne drauf.
+- **Charmat:** a mechanical safety valve within the rating of the tank is mandatory; the control
+  never replaces it. The set point stays at least 0.3 bar below it. The solenoid valve is normally
+  closed and direct-acting; on a sensor fault it stays closed.
+- **Heating:** off above 26 °C and without a probe reading, even without Home Assistant; if the
+  script stops, the Shelly switches off after two minutes. 230 V only by a qualified electrician.
+- **Pressure in the bottle:** calculated for complete fermentation of the residual sugar. Without
+  your own measurement bottles the model can be off by about ±0.8 bar, calibrated by about
+  ±0.3 bar (plan 2.9). Check every bottling with a measurement bottle and an aphrometer.
+- **Scale under a tank:** a load cell secured against slipping; almost a tonne rests on it.
 
-## Entwickeln
+## Development
 
 ```
-custom_components/tipsylab/   Integration; core/ rechnet ohne Home Assistant, frontend/ ist das Panel
-boxen/                        Software der Boxen (gaerbox/, esphome/, heizbox/) und ihre Doku
-blueprints/                   Benachrichtigungen, DataWein-Feed
-website/datawein/             Empfänger (PHP) und Skript der DataWein-Seite
-docs/                         Plan und UI-Entwurf
-tools/                        Druckmodell, Simulator, Generatoren für Übersetzungen und Display-Schrift, Panel-Vorschau
-tests/                        Kern gegen den Simulator, Integration in Home Assistant, Panel-Physik
-assets/                       Logo für das Display der Gärbox
+custom_components/tipsylab/   integration; core/ calculates without Home Assistant, frontend/ is the panel
+boxen/                        software of the boxes (gaerbox/, esphome/, heizbox/) and their docs
+blueprints/                   notifications, DataWein feed
+website/datawein/             receiver (PHP) and script of the DataWein page
+docs/                         plan and UI draft (German)
+tools/                        pressure model, simulator, generators for translations and display font, panel preview
+tests/                        core against the simulator, integration in Home Assistant, panel physics
+assets/                       logo for the Gärbox display
 ```
 
 ```bash
-uv sync && uv run pytest                   # alle Tests (Home Assistant 2026.2)
-python3 tools/druckmodell.py               # Drucktabellen aus dem Plan
-python3 tools/simulator.py                 # simulierter Ansatz mit Prognose
-python3 tools/make_translations.py         # strings.json und translations/ aus einer Quelle
-cd boxen/gaerbox && pio run                # Gärbox-Firmware bauen
-esphome config boxen/esphome/tankbox.yaml  # braucht boxen/esphome/secrets.yaml
+uv sync && uv run pytest                   # all tests (Home Assistant 2026.2)
+python3 tools/druckmodell.py               # pressure tables from the plan
+python3 tools/simulator.py                 # simulated batch with forecast
+python3 tools/make_translations.py         # strings.json and translations/ from one source
+cd boxen/gaerbox && pio run                # build the Gärbox firmware
+esphome config boxen/esphome/tankbox.yaml  # needs boxen/esphome/secrets.yaml
 ```
 
-Die Physik steht zweimal: `core/physics.py` für die Integration und `frontend/physics.js` für die
-Regler im Panel; ein Test vergleicht beide. Das Panel lässt sich ohne Home Assistant ansehen:
-Anleitung in [`tools/panel-vorschau/index.html`](tools/panel-vorschau/index.html).
+The physics exists twice: `core/physics.py` for the integration and `frontend/physics.js` for the
+sliders in the panel; a test compares both. The panel can be viewed without Home Assistant: see
+the instructions in [`tools/panel-vorschau/index.html`](tools/panel-vorschau/index.html).
 
-## Stand
+## Status
 
-Umgesetzt: Integration mit Panel, Prognose mit Monte-Carlo-Fenster, Druckmodell, Gewicht als
-Quelle, Alkohol fürs Etikett; nach dem Abfüllen Messflasche mit Alarm, Archiv, Nachkalkulation und
-Hauswerte; „Quelle stumm“ und „Akku schwach“; Oberfläche, Entitäten und Benachrichtigungen auf
-Deutsch, Französisch und Englisch; Gärbox-Firmware 2.2 mit Display und optionaler Waage; ESPHome
-für Tank-, Waage-, Flaschen- und Kellerluftbox (mit Bluetooth-Proxy für Spindeln); Heizbox-Skript;
-Blueprints.
+Done: integration with panel, forecast with a Monte Carlo window, pressure model, weight as a
+source, alcohol for the label; after bottling the measurement bottle with alarm, archive,
+post-calculation and house values; "Source silent" and "Battery low"; interface, entities and
+notifications in German, French and English; Gärbox firmware 2.2 with display and optional scale;
+ESPHome for the Tankbox, Waagebox, Flaschenbox and Kellerluftbox (with a Bluetooth proxy for
+hydrometers); Heizbox script; blueprints.
 
-Dazu der öffentliche Feed für die DataWein-Seite (Empfänger und Seite in `website/datawein`).
+Plus the public feed for the DataWein page (receiver and page in [`website/datawein`](website/datawein)).
 
-Noch offen aus dem Plan sind nur die Extras aus Phase 6: Kühlung per Home Assistant, Kolorimeter,
-Füllstand.
+Still open from the plan are only the phase 6 extras: cooling via Home Assistant, a colorimeter,
+fill level.
 
-Geprüft ist, was ohne Hardware geht: Tests gegen einen Simulator mit bekannter Wahrheit, Builds,
-Konfigurationsprüfung, das Panel im Browser mit echten Daten der Integration, das Shelly-Skript in
-einer Simulation. Am Gerät noch nicht gelaufen sind die Gärbox-Firmware 2.1/2.2, die ESPHome-Boxen
-(bei den Displays können Versatz und Farben abweichen) und das Shelly-Skript.
+Tested is what works without hardware: tests against a simulator with a known truth, builds,
+configuration checks, the panel in the browser with real data from the integration, and the Shelly
+script in a simulation. Not yet run on a device: Gärbox firmware 2.1/2.2, the ESPHome boxes (on
+the displays, offset and colours may be off) and the Shelly script.
+
+## License
+
+The code is under the [MIT License](LICENSE). The fonts in
+`custom_components/tipsylab/frontend/fonts/` and the display font generated into
+`boxen/gaerbox/include/` are under the SIL Open Font License (see the `OFL-*.txt` files next to
+them). The TIPSY name and logos (`assets/`, `custom_components/tipsylab/frontend/tipsy-logo.svg`)
+are not covered by the license.

@@ -14,6 +14,9 @@ allen Entscheidungen: `docs/PLAN-Abfuellzeitpunkt.md`. Bei Fachfragen dort zuers
 - Gestaltung wie tipsy.pt und der Entwurf in `docs/ui-entwurf/`: Rubik Mono One für die eine
   Antwort, Fraunces für Text, JetBrains Mono für Daten; Papier-Rosé `#f9e3e7`, Ultramarin
   `#2b2c78`, Koralle nur für Warnungen. **Keine runden Ecken**, nirgends.
+- Doku auf Englisch (`README.md`, `boxen/README.md`, `boxen/gaerbox/README.md`,
+  `website/datawein/README.md`), denn das Repo ist für Mitmachende gedacht. Der Plan in `docs/`
+  bleibt Deutsch. Box-Namen (Gärbox, Waagebox …) und ESPHome-Entitäten bleiben deutsch.
 - Minimal und intuitiv: lieber eine Zahl weniger als eine Erklärung mehr.
 
 ## Wo was liegt
