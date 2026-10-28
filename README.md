@@ -17,6 +17,14 @@ help you set one up, too. More data = more reliability.
 The panel and notifications speak English, French and German. The detailed plan in
 [`docs/`](docs/PLAN-Abfuellzeitpunkt.md) is in German.
 
+<p align="center">
+  <img src="docs/screenshots/panel-today.png" width="330" alt="The TIPSYLAB panel in Home Assistant on a phone: bottling window, cellar temperature, residual sugar and its forecast">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/gaerbox-display.png" width="276" align="top" alt="Gärbox display: 12 bubbles per minute, 1 day 18 hours until bottling, 13.1 °C">
+</p>
+<p align="center"><sub>The panel in Home Assistant, here with a simulated batch, and the Gärbox display
+(layout from the UI draft in <code>docs/ui-entwurf/</code>).</sub></p>
+
 TIPSYLAB has two parts:
 
 - **The Home Assistant integration** ([`custom_components/tipsylab`](custom_components/tipsylab))
@@ -151,7 +159,9 @@ esphome config boxen/esphome/tankbox.yaml  # needs boxen/esphome/secrets.yaml
 
 The physics exists twice: `core/physics.py` for the integration and `frontend/physics.js` for the
 sliders in the panel; a test compares both. The panel can be viewed without Home Assistant: see
-the instructions in [`tools/panel-vorschau/index.html`](tools/panel-vorschau/index.html).
+the instructions in [`tools/panel-vorschau/index.html`](tools/panel-vorschau/index.html). The
+screenshots in [`docs/screenshots/`](docs/screenshots) come from that preview
+(`?tab=today&narrow=1&w=420&lang=en`) and from the display in the UI draft.
 
 ## Status
 
