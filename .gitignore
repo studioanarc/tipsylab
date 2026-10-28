@@ -22,3 +22,7 @@ boxen/esphome/.esphome/
 
 # Panel-Vorschau: erzeugte Daten
 tools/panel-vorschau/*.json
+
+# DataWein feed: the key and the generated data belong on the web server only
+tipsylab-feed-key.txt
+website/datawein/feed.json
