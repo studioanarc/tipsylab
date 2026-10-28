@@ -7,16 +7,16 @@
    Vier Screens: ab ~1480px in einer Reihe, darunter 2×2, am Telefon untereinander.
    Mono spricht die Daten, Serif erzählt, Rubik Mono One nur für die eine Antwort. */
 :root {
-  --paper: #f9e3e7;     /* lab rosé, Grund */
-  --screen: #fdf1f3;    /* App-Fläche, eine Spur heller */
-  --ink: #2b2c78;       /* Ultramarin, Druckfarbe */
-  --red: #d24e35;       /* Koralle, nur für Warnungen */
+  --paper: #f2f4ed;     /* Salbei, Grund */
+  --screen: #f9faf6;    /* App-Fläche, eine Spur heller */
+  --ink: #2f3e24;       /* dunkles Oliv, Druckfarbe */
+  --red: #b8432c;       /* Koralle, nur für Warnungen */
   --muted: color-mix(in srgb, var(--ink) 66%, var(--paper));
   --rule: color-mix(in srgb, var(--ink) 38%, transparent);
   --band: color-mix(in srgb, var(--ink) 13%, transparent);
   --redband: color-mix(in srgb, var(--red) 20%, transparent);
   --grain-opacity: .07;
-  --dev-bg: #2b2c78; --dev-fg: #f9e3e7; --dev-ok: #7ce0a0; --dev-soon: #f0a24a; --dev-now: #ff8466; --dev-bezel: #19191f;   /* AtomS3-Display, in beiden Themes gleich */
+  --dev-bg: #2f3e24; --dev-fg: #f2f4ed; --dev-ok: #7ce0a0; --dev-soon: #f0a24a; --dev-now: #ff8466; --dev-bezel: #19191f;   /* AtomS3-Display, in beiden Themes gleich */
 
   --font-display: "Rubik Mono One", "Arial Black", system-ui, sans-serif;
   --font-body: "Fraunces", Georgia, "Times New Roman", serif;
@@ -26,12 +26,12 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #17184a; --screen: #1f2160; --ink: #f7dfe4; --red: #ff876b; --grain-opacity: .04;
+    --paper: #1b2315; --screen: #232f1b; --ink: #eff2e8; --red: #ff876b; --grain-opacity: .04;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --paper: #17184a; --screen: #1f2160; --ink: #f7dfe4; --red: #ff876b; --grain-opacity: .04;
+  --paper: #1b2315; --screen: #232f1b; --ink: #eff2e8; --red: #ff876b; --grain-opacity: .04;
   color-scheme: dark;
 }
 
@@ -438,7 +438,7 @@ footer.colophon p { margin: 0 0 8px; font-family: var(--font-mono); font-size: 1
           <button type="button" data-dub="late" aria-pressed="false">vorbei</button>
         </div>
         <p>Die <b>Temperatur</b> steht nur mit Gradzeichen, aus dem Fühler im Wein.</p>
-        <p>Das <b>Logo</b> kommt ohne Kreis außen herum: Smiley in Papier-Rosé auf Ultramarin.</p>
+        <p>Das <b>Logo</b> kommt ohne Kreis außen herum: Smiley in Salbei auf dunklem Oliv.</p>
         <p>Kommen die Blops schneller als alle 1,2 s, zeigt das Display nicht jeden als Logo, damit die Zahlen lesbar bleiben.</p>
         <button class="secondary" type="button" id="a-blop">Blop auslösen</button>
       </div>

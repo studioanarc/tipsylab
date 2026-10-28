@@ -12,8 +12,8 @@ allen Entscheidungen: `docs/PLAN-Abfuellzeitpunkt.md`. Bei Fachfragen dort zuers
   Benachrichtigungen in `texts.py`, in Blueprints über die Eingabe „Sprache“. Der Kern liefert
   Codes statt Sätzen. Französisch duzt wie das Deutsche.
 - Gestaltung wie tipsy.pt und der Entwurf in `docs/ui-entwurf/`: Rubik Mono One für die eine
-  Antwort, Fraunces für Text, JetBrains Mono für Daten; Papier-Rosé `#f9e3e7`, Ultramarin
-  `#2b2c78`, Koralle nur für Warnungen. **Keine runden Ecken**, nirgends.
+  Antwort, Fraunces für Text, JetBrains Mono für Daten; Papier Salbei `#f2f4ed`, Tinte dunkles
+  Oliv `#2f3e24`, Rot `#b8432c` nur für Warnungen (auf dunklen Displays Koralle `#ff8466`). **Keine runden Ecken**, nirgends.
 - Doku auf Englisch (`README.md`, `boxen/README.md`, `boxen/gaerbox/README.md`,
   `website/datawein/README.md`), denn das Repo ist für Mitmachende gedacht. Der Plan in `docs/`
   bleibt Deutsch. Box-Namen (Gärbox, Waagebox …) und ESPHome-Entitäten bleiben deutsch.

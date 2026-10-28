@@ -6,9 +6,9 @@
  * automatically (MQTT discovery); the bubble payload is also understood by the
  * tipsyhomelab add-on (topic sensors/bubble/<device-id>).
  *
- * Firmware 2.1 - see README.md for the MQTT reference and the tuning guide.
+ * Firmware 2.3 - see README.md for the MQTT reference and the tuning guide.
  *
- * Display (2.1): BPM, DUB and temperature on Tipsy ultramarine; the logo flashes for each blop.
+ * Display (2.1): BPM, DUB and temperature on Tipsy dark olive; the logo flashes for each blop.
  * DUB comes from the TIPSYLAB Home Assistant integration (tipsy/<id>/display).
  * Scale (2.2, optional): an HX711 with a load cell under the vessel or under one leg of three.
  *
@@ -38,7 +38,7 @@
 #include <math.h>
 #include <algorithm>
 
-#define FW_VERSION "2.2.1"
+#define FW_VERSION "2.3.0"
 
 // ===== Compile-time defaults (set them in secrets.ini, see secrets.ini.example) =====
 #ifndef TIPSY_WIFI_SSID
@@ -63,7 +63,7 @@
 #define TIPSY_OTA_PASS ""
 #endif
 #ifndef TIPSY_AP_PASS
-#define TIPSY_AP_PASS "treasurelab"
+#define TIPSY_AP_PASS ""   // empty: every box draws its own setup password (ensureApPassword)
 #endif
 
 // ===== Hardware =====
@@ -162,6 +162,7 @@ Config config;
 
 // ===== Globals =====
 char deviceId[16];                 // "tipsy-a1b2c3" from the WiFi MAC
+char apPass[64] = "";              // setup AP password: TIPSY_AP_PASS, or drawn per box and kept in NVS
 Preferences prefs;
 WiFiClient espClient;
 PubSubClient mqtt(espClient);
@@ -210,13 +211,13 @@ bool     logoLoaded = false, logoReload = false, showDetails = false;
 uint32_t detailsUntil = 0, lastLogoFlash = 0;
 char     logoUploadError[48] = "";
 
-// Main view colours (Tipsy): ultramarine ground, paper-pink digits, DUB in traffic-light colours
-const uint16_t COL_INK   = lgfx::color565(0x2b, 0x2c, 0x78);
-const uint16_t COL_PAPER = lgfx::color565(0xf9, 0xe3, 0xe7);
+// Main view colours (tipsy.pt): dark olive ground, sage digits, DUB in traffic-light colours
+const uint16_t COL_INK   = lgfx::color565(0x2f, 0x3e, 0x24);
+const uint16_t COL_PAPER = lgfx::color565(0xf2, 0xf4, 0xed);
 const uint16_t COL_OK    = lgfx::color565(0x7c, 0xe0, 0xa0);   // more than 3 days
 const uint16_t COL_SOON  = lgfx::color565(0xf0, 0xa2, 0x4a);   // until the window opens
 const uint16_t COL_NOW   = lgfx::color565(0xff, 0x84, 0x66);   // window open; blinking once it has passed
-const uint16_t COL_DIM   = lgfx::color565(0x8e, 0x8f, 0xc4);
+const uint16_t COL_DIM   = lgfx::color565(0x9a, 0xa5, 0x8f);
 
 // DUB from Home Assistant: hours until bottling at the time of the message, counted down locally
 const uint32_t DISPLAY_STALE_MS = 60UL * 60 * 1000;   // the integration re-sends at least every 15 min
@@ -349,6 +350,8 @@ bool applySettingText(const char* key, const char* value);
 void applySettingJson(const char* key, JsonVariantConst v);
 void connectWifiBlocking();
 void startAccessPoint();
+void loadApPassword();
+void ensureApPassword();
 void startNetworkServices();
 void networkTask(uint32_t now);
 void mqttTask(uint32_t now);
@@ -434,6 +437,7 @@ void setup() {
   loadLogo();
 
   loadConfig();
+  loadApPassword();
   buildTopics();
   if (prefs.begin("tipsy", true)) {
     totalAll = prefs.getUInt("tot_all", 0);
@@ -1268,15 +1272,44 @@ void connectWifiBlocking() {
   }
 }
 
+// Setup AP password. A fixed TIPSY_AP_PASS (8+ characters, secrets.ini) wins. Otherwise each box
+// draws its own the first time it opens the AP, keeps it in NVS (survives updates; a factory reset
+// draws a new one) and shows it on the setup screen and in the diagnostics view. Random rather than
+// derived from the MAC, which the AP broadcasts; drawn with WiFi on, so esp_random() is truly random.
+void loadApPassword() {
+  if (strlen(TIPSY_AP_PASS) >= 8) {
+    strlcpy(apPass, TIPSY_AP_PASS, sizeof(apPass));
+    return;
+  }
+  if (strlen(TIPSY_AP_PASS)) Serial.println("TIPSY_AP_PASS is shorter than 8 characters - ignored");
+  if (prefs.begin("tipsy", true)) {
+    prefs.getString("ap_pass", apPass, sizeof(apPass));
+    prefs.end();
+  }
+}
+
+void ensureApPassword() {
+  if (strlen(apPass) >= 8) return;
+  static const char SIGNS[] = "abcdefghijkmnpqrstuvwxyz23456789";   // no l, o, 0, 1: easy to read off the screen
+  static_assert(sizeof(SIGNS) - 1 == 32, "32 signs, so esp_random() % 32 has no bias");
+  for (int i = 0; i < 11; i++) apPass[i] = i == 5 ? '-' : SIGNS[esp_random() % 32];
+  apPass[11] = '\0';                                                  // "xxxxx-xxxxx", about 50 bits
+  if (prefs.begin("tipsy", false)) {
+    prefs.putString("ap_pass", apPass);
+    prefs.end();
+  }
+}
+
 void startAccessPoint() {
   if (apActive) return;
   apActive = true;
   WiFi.mode(configured ? WIFI_AP_STA : WIFI_AP);
+  ensureApPassword();
   char apName[40];
   snprintf(apName, sizeof(apName), "TIPSYlab %s", deviceId);
-  WiFi.softAP(apName, TIPSY_AP_PASS);
+  WiFi.softAP(apName, apPass);
   dnsServer.start(53, "*", WiFi.softAPIP());   // captive portal: every name -> us
-  Serial.printf("Setup AP '%s' at http://%s/\n", apName, WiFi.softAPIP().toString().c_str());
+  Serial.printf("Setup AP '%s' (password %s) at http://%s/\n", apName, apPass, WiFi.softAPIP().toString().c_str());
 }
 
 // Called once when the first IP is obtained (boot or later, after a fallback to AP+STA)
@@ -1767,7 +1800,7 @@ void drawAutoCalScreen(uint32_t now) {
   canvas.pushSprite(0, 0);
 }
 
-// Default view (2.1), three lines on ultramarine:
+// Default view (2.1), three lines on dark olive:
 //   12        BPM    blops in the last 60 s, measured here
 //   1d 19h    DUB    time until bottling from Home Assistant (DRY for still wine), coloured by state
 //   13,1°            wine temperature (probe 1, else probe 2)
@@ -1854,7 +1887,7 @@ const char* logoPath() {
   return nullptr;
 }
 
-// Decode the logo once into a full-screen sprite (fit into 128 x 128, centred on ultramarine);
+// Decode the logo once into a full-screen sprite (fit into 128 x 128, centred on dark olive);
 // flashing it later is a plain copy.
 bool loadLogo() {
   const char* path = logoPath();
@@ -1884,7 +1917,7 @@ bool loadLogo() {
   return ok;
 }
 
-// Blop flash: the uploaded logo, or a paper-pink dot on ultramarine when none is uploaded.
+// Blop flash: the uploaded logo, or a sage dot on dark olive when none is uploaded.
 void drawLogoScreen() {
   if (logoLoaded) {
     logo.pushSprite(&canvas, 0, 0);
@@ -1906,7 +1939,7 @@ void drawSetupScreen() {
   canvas.setTextColor(WHITE);
   canvas.setCursor(2, 40);  canvas.print("WiFi:");
   canvas.setCursor(2, 50);  canvas.printf("TIPSYlab %s", deviceId);
-  canvas.setCursor(2, 66);  canvas.printf("Pass: %s", TIPSY_AP_PASS);
+  canvas.setCursor(2, 66);  canvas.printf("Pass: %s", apPass);
   canvas.setCursor(2, 84);  canvas.print("Then open");
   canvas.setCursor(2, 94);  canvas.print("http://192.168.4.1");
   canvas.setTextColor(YELLOW); canvas.setCursor(2, 116); canvas.printf("Blops: %d", bubbleCount);
@@ -1933,8 +1966,13 @@ void drawStatusScreen(uint32_t now) {
     canvas.print(apActive ? "WiFi: setup AP" : "WiFi: down");
   }
   canvas.setCursor(2, 24);
-  canvas.setTextColor(mqttUp ? GREEN : RED);
-  canvas.print(mqttUp ? "MQTT ok" : "MQTT --");
+  if (apActive && !wifi) {                 // setup AP up: its password instead of the idle MQTT line
+    canvas.setTextColor(YELLOW);
+    canvas.printf("Pass %s", apPass);
+  } else {
+    canvas.setTextColor(mqttUp ? GREEN : RED);
+    canvas.print(mqttUp ? "MQTT ok" : "MQTT --");
+  }
   canvas.setCursor(2, 35);
   canvas.setTextColor(WHITE);
   canvas.print(wifi ? WiFi.localIP().toString() : (apActive ? WiFi.softAPIP().toString() : String("-")));

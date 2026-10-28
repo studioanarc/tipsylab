@@ -3,7 +3,7 @@
  * Ohne Build-Schritt und ohne Abhängigkeiten. Daten kommen über den WebSocket-Befehl
  * tipsylab/batches (alle 30 s und nach jeder Eingabe), Vorschauen über tipsylab/preview.
  * Eingaben gehen an die Services add_measurement, add_event und update_settings.
- * Gestaltung wie docs/ui-entwurf: Papier-Rosé, Ultramarin, keine runden Ecken.
+ * Gestaltung wie tipsy.pt und docs/ui-entwurf: Salbei-Papier, dunkles Oliv, keine runden Ecken.
  * Sprachen: Deutsch, Englisch, Französisch. Jeder Text steht an seiner Stelle als
  * L(Deutsch, Englisch, Französisch), wie in tools/make_translations.py. */
 
@@ -336,7 +336,7 @@ function injectFonts(base) {
 /* ---------- Gestaltung ---------- */
 const CSS = `
 :host {
-  --paper: #f9e3e7; --screen: #fdf1f3; --ink: #2b2c78; --red: #d24e35; --grain-opacity: .07;
+  --paper: #f2f4ed; --screen: #f9faf6; --ink: #2f3e24; --red: #b8432c; --grain-opacity: .07;
   --muted: color-mix(in srgb, var(--ink) 66%, var(--paper));
   --rule: color-mix(in srgb, var(--ink) 38%, transparent);
   --band: color-mix(in srgb, var(--ink) 13%, transparent);
@@ -349,7 +349,7 @@ const CSS = `
   font-family: var(--font-body); font-optical-sizing: auto; font-variation-settings: "SOFT" 40, "WONK" 1;
   font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased;
 }
-:host([dark]) { --paper: #17184a; --screen: #1f2160; --ink: #f7dfe4; --red: #ff876b; --grain-opacity: .04; color-scheme: dark; }
+:host([dark]) { --paper: #1b2315; --screen: #232f1b; --ink: #eff2e8; --red: #ff876b; --grain-opacity: .04; color-scheme: dark; }
 * { box-sizing: border-box; border-radius: 0; }
 [hidden] { display: none !important; }
 .root { container-type: inline-size; position: relative; max-width: 1500px; margin: 0 auto; padding: 16px 16px 48px; }

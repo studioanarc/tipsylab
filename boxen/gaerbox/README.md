@@ -8,7 +8,7 @@ everything over MQTT. Home Assistant picks the device up automatically (MQTT dis
 TIPSYLAB integration reads the raw messages and sends the time until bottling (DUB) back to the
 display.
 
-Firmware **2.2.1** – see [Changelog](#changelog).
+Firmware **2.3.0** – see [Changelog](#changelog).
 
 ## Hardware
 
@@ -33,8 +33,10 @@ pio device monitor                       # optional: watch the boot log
 ```
 
 With `secrets.ini` filled in the device boots straight onto your network. Without it, it opens
-a setup access point **`TIPSYlab tipsy-xxxxxx`** (password `treasurelab`) – connect, and the
-setup page opens at `http://192.168.4.1`.
+a setup access point **`TIPSYlab tipsy-xxxxxx`** with its own password, shown on the screen: each
+box draws one the first time (`xxxxx-xxxxx`) and keeps it; a factory reset draws a new one.
+Connect, and the setup page opens at `http://192.168.4.1`. For one fixed password on all your
+boxes, set `TIPSY_AP_PASS` (8+ characters) in `secrets.ini`.
 
 Each device gets a stable ID from its MAC address (`tipsy-a1b2c3`), shown on the screen and in
 the dashboard. It is the default hostname, MQTT client ID and the key in every topic, so any
@@ -77,8 +79,8 @@ filesystem upload touches them.
   readable at peak fermentation. The Tipsy logo is ready in `assets/logo-atoms3-128.png`. The file
   is stored as `/logo.png` or `/logo.jpg` on SPIFFS – the same names 1.x used, so a logo uploaded
   there survives a firmware-only update (not `uploadfs`, which rewrites the whole filesystem).
-  Without a logo a paper-pink dot flashes instead.
-- **Screen** (2.1): three lines on Tipsy ultramarine, digits in JetBrains Mono Bold:
+  Without a logo a sage dot flashes instead.
+- **Screen** (2.1): three lines on Tipsy dark olive, digits in JetBrains Mono Bold:
 
   ```
   12        BPM     blops in the last 60 s, counted on the device
@@ -90,7 +92,7 @@ filesystem upload touches them.
   blinking coral once it has passed; `--` without a forecast or when Home Assistant has not
   sent one for an hour. A small coral square in the top corner means WiFi or MQTT is down.
   A short button press shows the diagnostics view (hostname, IP, RSSI, noise floor, effective
-  trigger, last peak, send countdown) for 20 s. Hold 5 s = factory reset (clears NVS, restarts
+  trigger, last peak, send countdown) for 20 s; while the setup AP is up it also shows its password. Hold 5 s = factory reset (clears NVS, restarts
   into the setup AP). The baseline is relearned via `/api/calibrate` or the dashboard button.
 
 ## Scale (optional)
@@ -244,6 +246,16 @@ data/                 web UI, flashed to SPIFFS with `pio run -t uploadfs`
 ```
 
 ## Changelog
+
+### 2.3.0 (2026-10-28)
+
+- **Setup password per box:** instead of one password shared by every Gärbox, each box draws its
+  own the first time it opens the setup access point (`xxxxx-xxxxx`, no l/o/0/1, hardware random
+  number), keeps it in NVS and shows it on the setup screen and, while the AP is up, in the
+  diagnostics view. A factory reset draws a new one; `TIPSY_AP_PASS` in `secrets.ini` still sets
+  one fixed password for all boxes.
+- Display in the tipsy.pt colours: dark olive ground and sage digits instead of ultramarine and
+  paper pink; `assets/logo-atoms3-128.png` follows.
 
 ### 2.2.1 (2026-10-16)
 

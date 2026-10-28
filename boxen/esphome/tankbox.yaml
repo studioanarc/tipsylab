@@ -112,11 +112,11 @@ output:
 
 color:
   - id: tinte
-    hex: 2b2c78
+    hex: 2f3e24
   - id: papier
-    hex: f9e3e7
+    hex: f2f4ed
   - id: gedimmt
-    hex: 8e8fc4
+    hex: 9aa58f
   - id: koralle
     hex: ff8466
 
