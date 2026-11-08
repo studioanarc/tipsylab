@@ -30,6 +30,8 @@ regeln vor Ort. Übersicht der Boxen: `boxen/README.md`.
 - `custom_components/tipsylab/`: Integration (Coordinator, Config Flow mit „Neu konfigurieren“,
   Sensoren, Services, WebSocket `tipsylab/batches` und `tipsylab/preview`).
 - `custom_components/tipsylab/frontend/`: Panel als Web Component ohne Build-Schritt.
+- `custom_components/tipsylab/brand/`: Icon für Home Assistant und HACS (ab HA 2026.3), aus
+  `frontend/tipsy-logo.svg`, hell in Tinte und `dark_` in Papier, transparent.
 - `boxen/gaerbox/`: Gärbox-Firmware (PlatformIO): Blasen, Temperatur, optional HX711-Waage.
 - `boxen/esphome/`: Tankbox, Waagebox, Flaschenbox, Kellerluftbox, `pakete/waage.yaml` für
   bestehende ESP32.
@@ -73,3 +75,6 @@ esphome config boxen/esphome/tankbox.yaml  # braucht boxen/esphome/secrets.yaml
   (echte Daten aus der Integration, Screenshots mit Chrome headless).
 - Commits auf Deutsch im Stil `Bereich: was sich ändert`, etwa `Kern: …`, `Panel: …`,
   `Firmware: …`, `Docs: …`.
+- Neue Version der Integration: `version` in `manifest.json` erhöhen, pushen, dann
+  `gh release create vX.Y.Z` mit Release-Notes auf Englisch. HACS zeigt Versionen, Notes und
+  den Weg zurück nur über GitHub-Releases; Tag und `manifest.json` müssen übereinstimmen.
